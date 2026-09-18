@@ -375,6 +375,11 @@ scene.add(orb);
 
 var world = new THREE.Group(); scene.add(world);
 
+// Fish are kept in their own group so rebuilding the pond geometry
+// never interferes with fish visibility or animation.
+var fishGroup = new THREE.Group();
+fishGroup.renderOrder = 50;
+
 /* ---------------------------------------------------------------- colours */
 var STOPS=[[1.0,0x7A1F44],[2.5,0xD7466B],[4.0,0xE8743F],[5.2,0xE9C46A],[6.6,0x63D9B0],[9.0,0x39E6D0]];
 function doColor(v){
@@ -497,36 +502,12 @@ function buildPond(length_m, width_m, depth_m, layerCount){
 
   clearGroup(pond.banks);
   pond.slabs=[]; pond.wallPanels=[];
+
+  // Rebuild all pond geometry, but keep fish in a dedicated group.
   while(world.children.length>1) world.remove(world.children[world.children.length-1]);
+  clearGroup(fishGroup);
 
-  // buildPond clears the 3D world, so restore the fish models that were
-  // created during startup and reset their wandering state for this pond.
-  var W=pond.W, L=pond.L, D=pond.D;
-  for(var fq=0; fq<pond.fishes.length; fq++){
-    var ff=pond.fishes[fq];
-    var fs=ff.userData.swim || {};
-    fs.x=(Math.random()-0.5)*W*0.78;
-    fs.z=(Math.random()-0.5)*L*0.78;
-    fs.ang=Math.random()*Math.PI*2;
-    fs.targetAng=fs.ang+(Math.random()-0.5)*Math.PI;
-    fs.rx=(0.14+Math.random()*0.32)*W;
-    fs.rz=(0.14+Math.random()*0.34)*L;
-    fs.spd=0.16+Math.random()*0.22;
-    fs.turn=0.45+Math.random()*0.75;
-    fs.wander=0.8+Math.random()*1.5;
-    fs.nextTurn=0.8+Math.random()*2.8;
-    fs.off=Math.random()*6.28;
-    fs.y=-D*0.4;
-    fs.tY=-D*0.4;
-    fs.panic=false;
-    fs.size=(0.55+Math.random()*0.5)*Math.min(1.5, Math.max(0.55, Math.min(W,L)/10));
-    ff.userData.swim=fs;
-    ff.scale.setScalar(fs.size);
-    ff.visible=false;
-    world.add(ff);
-  }
-
-  var RIM=Math.max(2.2, Math.min(W,L)*0.28);
+  var W=pond.W, L=pond.L, D=pond.D, RIM=Math.max(2.2, Math.min(W,L)*0.28);
 
   function rim(w,l,x,z){
     var m=new THREE.Mesh(new THREE.BoxGeometry(w,0.8,l),bankMat);
@@ -620,27 +601,36 @@ function buildPond(length_m, width_m, depth_m, layerCount){
   pond.fishes=[];
   for(var k=0;k<40;k++){
     var f=makeFish(k);
-    var startX=(Math.random()-0.5)*W*0.78;
-    var startZ=(Math.random()-0.5)*L*0.78;
+
+    // Give every fish its own starting position and heading.
+    var startX=(Math.random()-0.5)*W*0.76;
+    var startZ=(Math.random()-0.5)*L*0.76;
     var startAng=Math.random()*Math.PI*2;
+
     f.userData.swim={
       x:startX, z:startZ,
       ang:startAng,
       targetAng:startAng+(Math.random()-0.5)*Math.PI,
-      rx:(0.14+Math.random()*0.32)*W,
-      rz:(0.14+Math.random()*0.34)*L,
-      spd:0.16+Math.random()*0.22,
-      turn:0.45+Math.random()*0.75,
-      wander:0.8+Math.random()*1.5,
-      nextTurn:0.8+Math.random()*2.8,
-      off:Math.random()*6.28,
-      y:-D*0.4, tY:-D*0.4, panic:false,
-      size:(0.55+Math.random()*0.5)*Math.min(1.5, Math.max(0.55, Math.min(W,L)/10))
+      spd:0.12+Math.random()*0.20,
+      turn:0.55+Math.random()*1.0,
+      wander:1.2+Math.random()*2.8,
+      nextTurn:0.4+Math.random()*2.5,
+      off:Math.random()*Math.PI*2,
+      y:-D*(0.25+Math.random()*0.5),
+      tY:-D*(0.25+Math.random()*0.5),
+      panic:false,
+      size:(0.55+Math.random()*0.5)*
+           Math.min(1.5,Math.max(0.55,Math.min(W,L)/10))
     };
+
     f.scale.setScalar(f.userData.swim.size);
     f.visible=false;
-    world.add(f); pond.fishes.push(f);
+    fishGroup.add(f);
+    pond.fishes.push(f);
   }
+
+  // Fish render after the pond geometry so they remain clearly visible.
+  world.add(fishGroup);
 
   orbit.r=Math.max(16, Math.max(W,L)*1.55);
   orbit.target.set(0,-D*0.45,0);
@@ -758,40 +748,63 @@ function tick(){
   for(var q=0;q<pond.fishes.length;q++){
     var f=pond.fishes[q]; if(!f.visible) continue;
     var s=f.userData.swim;
-    var speed=s.spd*(s.panic?1.9:1);
+    var speed=s.spd*(s.panic?1.65:1);
 
-    // Natural wandering: every fish has its own heading and gently
-    // changes direction instead of following the same circular path.
+    // Each fish follows its own wandering heading.
     s.nextTurn-=dt;
     if(s.nextTurn<=0){
-      s.targetAng += (Math.random()-0.5)*(s.panic?1.1:1.8);
-      s.nextTurn=s.wander*(0.7+Math.random()*1.3);
+      s.targetAng += (Math.random()-0.5)*
+                     (s.panic?1.4:2.4);
+      s.nextTurn=s.wander*(0.65+Math.random()*1.35);
     }
 
-    // Steer toward the individual target heading.
-    var da=Math.atan2(Math.sin(s.targetAng-s.ang),Math.cos(s.targetAng-s.ang));
+    // Smoothly rotate toward the target heading.
+    var da=Math.atan2(
+      Math.sin(s.targetAng-s.ang),
+      Math.cos(s.targetAng-s.ang)
+    );
     s.ang += da*Math.min(1,dt*s.turn);
 
-    var vx=Math.cos(s.ang)*speed;
-    var vz=Math.sin(s.ang)*speed;
-    s.x+=vx*dt;
-    s.z+=vz*dt;
+    // Move independently in X/Z.
+    s.x += Math.cos(s.ang)*speed*dt;
+    s.z += Math.sin(s.ang)*speed*dt;
 
-    // Softly turn fish back toward the pond if they approach the edges.
-    var edgeX=W*0.46, edgeZ=L*0.46;
-    if(s.x>edgeX || s.x<-edgeX){
-      s.targetAng=Math.PI-s.ang+(Math.random()-0.5)*0.45;
-      s.x=Math.max(-edgeX,Math.min(edgeX,s.x));
+    // Turn around smoothly near pond boundaries.
+    var edgeX=W*0.43, edgeZ=L*0.43;
+    var marginX=Math.max(0.5,W*0.10);
+    var marginZ=Math.max(0.5,L*0.10);
+
+    if(s.x>edgeX-marginX){
+      s.targetAng=Math.PI-Math.abs(s.ang)+
+                   (Math.random()-0.5)*0.7;
+    } else if(s.x<-edgeX+marginX){
+      s.targetAng=Math.abs(s.ang)+
+                   (Math.random()-0.5)*0.7;
     }
-    if(s.z>edgeZ || s.z<-edgeZ){
-      s.targetAng=-s.ang+(Math.random()-0.5)*0.45;
-      s.z=Math.max(-edgeZ,Math.min(edgeZ,s.z));
+
+    if(s.z>edgeZ-marginZ){
+      s.targetAng=-Math.abs(s.ang)+
+                   (Math.random()-0.5)*0.7;
+    } else if(s.z<-edgeZ+marginZ){
+      s.targetAng=Math.abs(s.ang)+
+                   (Math.random()-0.5)*0.7;
     }
 
-    s.y+=(s.tY-s.y)*Math.min(1,dt*1.3);
-    f.position.set(s.x, s.y+Math.sin(t*1.5+s.off)*0.045, s.z);
+    s.x=Math.max(-edgeX,Math.min(edgeX,s.x));
+    s.z=Math.max(-edgeZ,Math.min(edgeZ,s.z));
 
-    // Fish model faces +X, so rotate it to match its actual swimming heading.
+    // Independent depth movement.
+    s.tY += Math.sin(t*0.35+s.off)*dt*0.04;
+    s.tY=Math.max(-D+0.28,Math.min(-0.28,s.tY));
+    s.y+=(s.tY-s.y)*Math.min(1,dt*1.1);
+
+    f.position.set(
+      s.x,
+      s.y+Math.sin(t*1.8+s.off)*0.055,
+      s.z
+    );
+
+    // Fish model faces +X.
     f.rotation.y=Math.atan2(-Math.sin(s.ang),Math.cos(s.ang));
     f.rotation.z=Math.sin(t*3+s.off)*(s.panic?0.16:0.05);
     if(f.userData.tail) f.userData.tail.rotation.y=Math.sin(t*(s.panic?13:7)+s.off)*0.55;
