@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: pondtwin
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: PONDTWIN_DATABASE_PATH
+        value: /tmp/pondtwin.db
+      - key: PONDTWIN_TELEMETRY_INTERVAL_SECONDS
+        value: "60"

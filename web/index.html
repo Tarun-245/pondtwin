@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pond Twin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B1418;
+    --panel:#0E1B21;
+    --panel-2:#13262E;
+    --line:#1C333D;
+    --ink:#E4F1F2;
+    --ink-2:#8DA9B1;
+    --ink-3:#5C7883;
+    --oxy:#3FD8A8;
+    --warn:#E9C46A;
+    --crit:#D7466B;
+    --lethal:#8E1F45;
+    --accent:#4FB8D8;
+    --font:"Sora","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  :root:not([data-theme="light"]){ color-scheme:dark; }
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:var(--font); font-weight:300; font-size:13px;
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+  }
+  button,input,select{font-family:inherit;}
+
+  #shell{display:grid;grid-template-columns:312px 1fr;height:100vh;}
+
+  /* ============ LEFT RAIL ============ */
+  #rail{
+    background:linear-gradient(180deg,#102028,#0B1519);
+    border-right:1px solid var(--line);
+    display:flex;flex-direction:column;min-height:0;
+  }
+  #railHead{padding:18px 18px 14px;border-bottom:1px solid var(--line);}
+  .brand{font-size:15px;font-weight:600;letter-spacing:-0.01em;margin:0 0 12px;}
+  .brand em{font-style:normal;color:var(--ink-3);font-weight:300;}
+
+  .pondpick{display:flex;gap:7px;}
+  select{
+    flex:1;min-width:0;background:var(--panel-2);color:var(--ink);
+    border:1px solid var(--line);border-radius:7px;padding:8px 9px;font-size:12.5px;
+  }
+  .icobtn{
+    width:34px;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:7px;color:var(--ink-2);cursor:pointer;font-size:15px;line-height:1;
+  }
+  .icobtn:hover{color:var(--ink);border-color:#2B4C59;}
+
+  #modes{display:flex;padding:12px 18px 0;gap:4px;}
+  .mode{
+    flex:1;padding:8px 4px;background:none;border:none;border-bottom:2px solid transparent;
+    color:var(--ink-3);font-size:12px;cursor:pointer;
+  }
+  .mode[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);}
+  .mode:hover{color:var(--ink-2);}
+
+  #railBody{flex:1;overflow-y:auto;padding:16px 18px 24px;min-height:0;}
+  #railBody::-webkit-scrollbar{width:7px;}
+  #railBody::-webkit-scrollbar-thumb{background:#1E3945;border-radius:4px;}
+
+  .sect{margin-bottom:18px;}
+  .sect > h2{font-size:10.5px;font-weight:500;color:var(--ink-3);margin:0 0 9px;}
+
+  .field{margin-bottom:11px;}
+  .field label{display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:4px;}
+  .field input[type=number],.field input[type=text],.field select{
+    width:100%;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:6px;padding:7px 9px;color:var(--ink);font-size:12.5px;
+    font-variant-numeric:tabular-nums;
+  }
+  .field input:focus,.field select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent;}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+  .trio{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;}
+
+  .slider .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;}
+  .slider .top span{font-size:11.5px;color:var(--ink-2);}
+  .slider .top b{font-size:12.5px;font-weight:500;font-variant-numeric:tabular-nums;}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:2px;
+    background:#22414D;outline:none;margin:0 0 12px;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+    background:var(--ink);border:2px solid #0B1519;cursor:grab;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:11px;height:11px;border-radius:50%;background:var(--ink);
+    border:2px solid #0B1519;cursor:grab;
+  }
+  input[type=range]:focus-visible{outline:2px solid var(--oxy);outline-offset:4px;}
+
+  .btn{
+    width:100%;padding:10px 12px;border-radius:7px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--ink);font-size:12.5px;cursor:pointer;
+    display:flex;align-items:center;gap:9px;text-align:left;
+  }
+  .btn:hover{background:#18313B;}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .btn.primary{background:#14413C;border-color:#2C6D5F;}
+  .btn.primary:hover{background:#185048;}
+  .btn small{margin-left:auto;color:var(--ink-3);font-variant-numeric:tabular-nums;}
+  .btn .dot{width:8px;height:8px;border-radius:50%;background:#3A5A66;flex:none;}
+  .btn[aria-pressed="true"] .dot{background:var(--oxy);box-shadow:0 0 8px var(--oxy);}
+  .btn[aria-pressed="true"]{border-color:#2C6D5F;background:#14302E;}
+  .btn + .btn{margin-top:8px;}
+
+  .stat{display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #16272E;font-size:12px;}
+  .stat:first-child{border-top:none;}
+  .stat span{color:var(--ink-2);}
+  .stat b{font-weight:500;font-variant-numeric:tabular-nums;}
+
+  .verdict{
+    padding:12px 13px;border-radius:8px;background:var(--panel-2);
+    border-left:3px solid var(--oxy);font-size:12px;line-height:1.55;margin-bottom:16px;
+  }
+  .verdict b{display:block;margin-bottom:3px;font-weight:600;}
+  .verdict.warning{border-left-color:var(--warn);}
+  .verdict.critical,.verdict.lethal{border-left-color:var(--crit);background:#25121B;}
+
+  .hint{font-size:10.5px;color:var(--ink-3);line-height:1.6;}
+
+  /* ============ STAGE ============ */
+  #stage{position:relative;background:#060D11;min-width:0;}
+  canvas{display:block;width:100%;height:100%;}
+
+  .overlay{position:absolute;pointer-events:none;}
+  #clock{left:20px;top:18px;}
+  #clock b{display:block;font-size:22px;font-weight:500;letter-spacing:-0.02em;}
+  #clock span{font-size:11.5px;color:var(--ink-2);}
+  #tag{
+    left:20px;top:72px;font-size:10.5px;color:var(--ink-3);
+    border:1px solid var(--line);border-radius:5px;padding:3px 7px;background:rgba(11,20,24,.6);
+  }
+  #hint{left:20px;bottom:16px;font-size:10.5px;color:var(--ink-3);}
+
+  /* depth scale overlay, right edge */
+  #scale{
+    right:18px;top:18px;width:158px;background:rgba(10,19,23,.82);
+    border:1px solid var(--line);border-radius:9px;padding:12px 12px 10px;
+    backdrop-filter:blur(6px);pointer-events:auto;
+  }
+  #scale h3{font-size:10.5px;font-weight:500;color:var(--ink-3);margin:0 0 8px;}
+  .band{display:flex;align-items:center;gap:8px;font-size:11px;padding:3px 0;}
+  .band i{width:12px;height:12px;border-radius:3px;flex:none;}
+  .band u{text-decoration:none;color:var(--ink-3);font-variant-numeric:tabular-nums;width:30px;}
+  .band b{margin-left:auto;font-weight:500;font-variant-numeric:tabular-nums;}
+  .band.low b{color:var(--crit);}
+  #fishnote{margin-top:9px;padding-top:9px;border-top:1px solid #1A2E36;font-size:10.5px;color:var(--ink-3);line-height:1.5;}
+
+  /* timeline under the pond */
+  #timeline{
+    left:20px;right:196px;bottom:42px;pointer-events:auto;
+    background:rgba(10,19,23,.82);border:1px solid var(--line);
+    border-radius:9px;padding:11px 14px 8px;backdrop-filter:blur(6px);
+  }
+  #timeline.hidden{display:none;}
+  #tlhead{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:var(--ink-2);margin-bottom:6px;}
+  #tlhead b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums;}
+  #spark{width:100%;height:58px;display:block;}
+  #tlrange{margin:2px 0 0;}
+
+  #toast{
+    left:50%;transform:translateX(-50%);top:18px;padding:9px 14px;border-radius:7px;
+    background:#2A1520;border:1px solid #5A2438;color:#F0C8D4;font-size:12px;opacity:0;
+    transition:opacity .25s;
+  }
+  #toast.show{opacity:1;}
+
+  /* ============ MODAL ============ */
+  #modal{
+    position:fixed;inset:0;background:rgba(4,9,12,.72);display:none;
+    align-items:center;justify-content:center;z-index:50;
+  }
+  #modal.open{display:flex;}
+  #modalCard{
+    width:min(520px,92vw);max-height:88vh;overflow-y:auto;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px 24px;
+  }
+  #modalCard h2{font-size:15px;font-weight:600;margin:0 0 4px;}
+  #modalCard p.sub{font-size:11.5px;color:var(--ink-3);margin:0 0 18px;line-height:1.5;}
+  .modalActions{display:flex;gap:9px;margin-top:18px;}
+  .modalActions .btn{width:auto;flex:1;justify-content:center;}
+
+  @media (max-width:880px){
+    body{overflow:auto;}
+    #shell{grid-template-columns:1fr;height:auto;}
+    #stage{height:60vh;min-height:360px;}
+    #rail{height:auto;max-height:none;}
+    #railBody{overflow:visible;}
+    #scale{position:static;width:auto;margin:0;}
+    #timeline{right:20px;}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+</head>
+<body>
+
+<div id="shell">
+
+  <aside id="rail">
+    <div id="railHead">
+      <p class="brand">Pond Twin <em>/ <span id="brandMode">live</span></em></p>
+      <div class="pondpick">
+        <select id="pondSelect" aria-label="Select pond"></select>
+        <button class="icobtn" id="btnNewPond" title="Add a pond" aria-label="Add a pond">+</button>
+        <button class="icobtn" id="btnEditPond" title="Edit this pond" aria-label="Edit this pond">&#9998;</button>
+      </div>
+    </div>
+
+    <div id="modes" role="tablist">
+      <button class="mode" role="tab" data-mode="now" aria-selected="true">Now</button>
+      <button class="mode" role="tab" data-mode="forecast" aria-selected="false">Forecast</button>
+      <button class="mode" role="tab" data-mode="experiment" aria-selected="false">Experiment</button>
+    </div>
+
+    <div id="railBody"></div>
+  </aside>
+
+  <main id="stage">
+    <div class="overlay" id="clock"><b id="clockTime">--:--</b><span id="clockPhase"></span></div>
+    <div class="overlay" id="tag">loading</div>
+    <div class="overlay" id="hint">Drag to orbit &middot; scroll to zoom</div>
+
+    <div class="overlay" id="scale">
+      <h3>Oxygen by depth</h3>
+      <div id="bands"></div>
+      <div id="fishnote"></div>
+    </div>
+
+    <div class="overlay hidden" id="timeline">
+      <div id="tlhead"><span id="tlLabel">Lowest oxygen in the column</span><b id="tlValue"></b></div>
+      <svg id="spark" viewBox="0 0 600 58" preserveAspectRatio="none"></svg>
+      <input type="range" id="tlrange" min="1" max="12" step="1" value="1" aria-label="Forecast hour">
+    </div>
+
+    <div class="overlay" id="toast"></div>
+  </main>
+</div>
+
+<div id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div id="modalCard">
+    <h2 id="modalTitle">Add a pond</h2>
+    <p class="sub" id="modalSub">Measurements decide how the pond behaves, so use real numbers from the bund.</p>
+    <div id="modalForm"></div>
+    <div class="modalActions">
+      <button class="btn" id="modalCancel" style="justify-content:center">Cancel</button>
+      <button class="btn primary" id="modalSave" style="justify-content:center">Save pond</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+/* ======================================================================
+   API
+   ====================================================================== */
+var API = "/api/v1";
+
+async function api(path, opts){
+  var res = await fetch(API + path, Object.assign({
+    headers: { "Content-Type": "application/json" }
+  }, opts || {}));
+  if (!res.ok){
+    var detail = "";
+    try { detail = (await res.json()).detail || ""; } catch(_){}
+    throw new Error(detail || (res.status + " " + res.statusText));
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+function toast(msg){
+  var el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(el._t);
+  el._t = setTimeout(function(){ el.classList.remove("show"); }, 4200);
+}
+
+/* ======================================================================
+   APP STATE
+   ====================================================================== */
+var app = {
+  ponds: [],
+  pond: null,
+  species: [],
+  mode: "now",
+  live: null,
+  forecast: null,
+  experiment: null,
+  hour: 1,
+  playing: false,
+  exp: null,          // editable experiment config
+  loading: false
+};
+
+var RISK_COLOR = { safe:"#3FD8A8", warning:"#E9C46A", critical:"#D7466B", lethal:"#8E1F45" };
+
+/* ======================================================================
+   THREE SCENE
+   ====================================================================== */
+var stage = document.getElementById("stage");
+var renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(stage.clientWidth, stage.clientHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+stage.appendChild(renderer.domElement);
+
+var scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0A1418, 34, 96);
+var camera = new THREE.PerspectiveCamera(42, stage.clientWidth/stage.clientHeight, 0.1, 400);
+
+var orbit = { r:22, theta:-0.62, phi:1.10, target:new THREE.Vector3(0,-1.2,0) };
+function placeCamera(){
+  camera.position.set(
+    orbit.target.x + orbit.r*Math.sin(orbit.phi)*Math.sin(orbit.theta),
+    orbit.target.y + orbit.r*Math.cos(orbit.phi),
+    orbit.target.z + orbit.r*Math.sin(orbit.phi)*Math.cos(orbit.theta)
+  );
+  camera.lookAt(orbit.target);
+}
+placeCamera();
+
+var drag=null;
+var cv = renderer.domElement;
+cv.addEventListener("pointerdown",function(e){drag={x:e.clientX,y:e.clientY};cv.setPointerCapture(e.pointerId);});
+cv.addEventListener("pointermove",function(e){
+  if(!drag) return;
+  orbit.theta -= (e.clientX-drag.x)*0.006;
+  orbit.phi = Math.max(0.24, Math.min(1.47, orbit.phi - (e.clientY-drag.y)*0.006));
+  drag.x=e.clientX; drag.y=e.clientY; placeCamera();
+});
+cv.addEventListener("pointerup",function(e){drag=null;try{cv.releasePointerCapture(e.pointerId);}catch(_){}});
+cv.addEventListener("wheel",function(e){
+  e.preventDefault();
+  orbit.r = Math.max(8, Math.min(60, orbit.r + e.deltaY*0.018));
+  placeCamera();
+},{passive:false});
+
+var hemi = new THREE.HemisphereLight(0x9FD8E8, 0x2A1C14, 0.5); scene.add(hemi);
+var sun  = new THREE.DirectionalLight(0xFFF0D8, 1.0); sun.position.set(10,16,7); scene.add(sun);
+var fill = new THREE.DirectionalLight(0x4E7E96, 0.32); fill.position.set(-9,6,-8); scene.add(fill);
+
+/* sky dome */
+var skyCanvas=document.createElement("canvas"); skyCanvas.width=4; skyCanvas.height=128;
+var skyCtx=skyCanvas.getContext("2d");
+var skyTex=new THREE.CanvasTexture(skyCanvas);
+scene.add(new THREE.Mesh(
+  new THREE.SphereGeometry(140,24,16),
+  new THREE.MeshBasicMaterial({map:skyTex,side:THREE.BackSide,depthWrite:false,fog:false})
+));
+function paintSky(a,b){
+  var g=skyCtx.createLinearGradient(0,0,0,128);
+  g.addColorStop(0,a); g.addColorStop(1,b);
+  skyCtx.fillStyle=g; skyCtx.fillRect(0,0,4,128); skyTex.needsUpdate=true;
+}
+
+var orb = new THREE.Mesh(new THREE.SphereGeometry(1.2,20,14),
+  new THREE.MeshBasicMaterial({color:0xFFE9B8,fog:false}));
+scene.add(orb);
+
+var world = new THREE.Group(); scene.add(world);
+
+/* ---------------------------------------------------------------- colours */
+var STOPS=[[1.0,0x7A1F44],[2.5,0xD7466B],[4.0,0xE8743F],[5.2,0xE9C46A],[6.6,0x63D9B0],[9.0,0x39E6D0]];
+function doColor(v){
+  if(v<=STOPS[0][0]) return new THREE.Color(STOPS[0][1]);
+  for(var i=1;i<STOPS.length;i++){
+    if(v<=STOPS[i][0]){
+      var t=(v-STOPS[i-1][0])/(STOPS[i][0]-STOPS[i-1][0]);
+      return new THREE.Color(STOPS[i-1][1]).lerp(new THREE.Color(STOPS[i][1]),t);
+    }
+  }
+  return new THREE.Color(STOPS[STOPS.length-1][1]);
+}
+
+/* ------------------------------------------------------------------ fish */
+function fishBodyGeometry(){
+  // Fusiform profile lathed about the body axis, then laterally compressed.
+  var pts=[];
+  var prof=[[0.020,0.00],[0.075,0.06],[0.130,0.15],[0.168,0.28],[0.182,0.42],
+            [0.176,0.55],[0.150,0.68],[0.110,0.80],[0.060,0.91],[0.000,1.00]];
+  for(var i=0;i<prof.length;i++) pts.push(new THREE.Vector2(prof[i][0],prof[i][1]));
+  var g=new THREE.LatheGeometry(pts,14);
+  g.translate(0,-0.5,0);
+  g.rotateZ(-Math.PI/2);          // length now runs along +X (nose forward)
+  g.scale(1,1,0.52);              // laterally compressed, like a real fish
+  return g;
+}
+var FISH_BODY = fishBodyGeometry();
+
+function finShape(points){
+  var s=new THREE.Shape();
+  s.moveTo(points[0][0],points[0][1]);
+  for(var i=1;i<points.length;i++) s.lineTo(points[i][0],points[i][1]);
+  s.closePath();
+  return new THREE.ShapeGeometry(s);
+}
+var CAUDAL = finShape([[0,0],[-0.30,0.27],[-0.19,0.02],[-0.30,-0.27]]);
+var DORSAL = finShape([[-0.10,0],[0.22,0],[0.02,0.20]]);
+var ANAL   = finShape([[-0.06,0],[0.14,0],[0.00,-0.13]]);
+var PECT   = finShape([[0,0],[-0.17,0.08],[-0.14,-0.07]]);
+
+var PALETTE=[
+  {body:0xB9C39A, belly:0xE4E7D2, fin:0x8C9670},
+  {body:0x9FB4C4, belly:0xDCE6EC, fin:0x6E8697},
+  {body:0xC9B18A, belly:0xEDE0C9, fin:0x9A835F},
+  {body:0x8FA98F, belly:0xD8E2D2, fin:0x66805F}
+];
+
+function makeFish(variant){
+  var p = PALETTE[variant % PALETTE.length];
+  var g = new THREE.Group();
+
+  var bodyMat = new THREE.MeshStandardMaterial({color:p.body,roughness:0.42,metalness:0.28});
+  var finMat  = new THREE.MeshStandardMaterial({color:p.fin,roughness:0.6,metalness:0.1,
+                                                side:THREE.DoubleSide,transparent:true,opacity:0.92});
+
+  var body=new THREE.Mesh(FISH_BODY,bodyMat); g.add(body);
+
+  var belly=new THREE.Mesh(FISH_BODY,new THREE.MeshStandardMaterial({
+    color:p.belly,roughness:0.5,metalness:0.1}));
+  belly.scale.set(0.97,0.55,0.9); belly.position.y=-0.055; g.add(belly);
+
+  var dorsal=new THREE.Mesh(DORSAL,finMat); dorsal.position.set(-0.02,0.15,0); g.add(dorsal);
+  var anal=new THREE.Mesh(ANAL,finMat); anal.position.set(-0.20,-0.13,0); g.add(anal);
+
+  var pl=new THREE.Mesh(PECT,finMat); pl.position.set(0.12,-0.03,0.085); pl.rotation.y=0.5; g.add(pl);
+  var pr=new THREE.Mesh(PECT,finMat); pr.position.set(0.12,-0.03,-0.085); pr.rotation.y=-0.5; g.add(pr);
+
+  var tail=new THREE.Group(); tail.position.x=-0.46;
+  tail.add(new THREE.Mesh(CAUDAL,finMat)); g.add(tail);
+
+  var eyeMat=new THREE.MeshStandardMaterial({color:0x16242B,roughness:0.25,metalness:0.4});
+  var eg=new THREE.SphereGeometry(0.032,8,6);
+  var el=new THREE.Mesh(eg,eyeMat); el.position.set(0.33,0.055,0.062); g.add(el);
+  var er=new THREE.Mesh(eg,eyeMat); er.position.set(0.33,0.055,-0.062); g.add(er);
+
+  g.userData.tail=tail;
+  return g;
+}
+
+/* ---------------------------------------------- persistent scene objects */
+var pond = {
+  slabs:[], wallPanels:[], fishes:[], banks:new THREE.Group(),
+  bed:null, surface:null, surfGeo:null, surfBase:null,
+  aerator:null, wheel:null, bubbles:null, bubGeo:null, bubData:[],
+  silt:null, siltGeo:null, siltData:[],
+  labels:[],
+  W:10, L:14, D:2.2, scale:1, layerCount:12
+};
+world.add(pond.banks);
+
+var bankMat=new THREE.MeshStandardMaterial({color:0x7E4630,roughness:0.96});
+var grassMat=new THREE.MeshStandardMaterial({color:0x3C5235,roughness:1});
+var bedMat=new THREE.MeshStandardMaterial({color:0x3A2A1C,roughness:1});
+
+function makeLabel(text){
+  var c=document.createElement("canvas"); c.width=256; c.height=64;
+  var x=c.getContext("2d");
+  x.fillStyle="rgba(11,20,24,0.0)"; x.fillRect(0,0,256,64);
+  x.font="500 30px Sora, sans-serif"; x.fillStyle="#C6DDE2";
+  x.textAlign="center"; x.textBaseline="middle";
+  x.fillText(text,128,32);
+  var t=new THREE.CanvasTexture(c);
+  var s=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthWrite:false,fog:false}));
+  s.scale.set(4.2,1.05,1);
+  return s;
+}
+
+function clearGroup(g){
+  while(g.children.length) g.remove(g.children[0]);
+}
+
+/**
+ * Rebuild the pond shell whenever geometry changes.
+ * Real length/width/depth drive the scene, so ponds look like themselves.
+ */
+function buildPond(length_m, width_m, depth_m, layerCount){
+  var s = 16 / Math.max(length_m, width_m);      // fit longest side to 16 units
+  pond.scale=s; pond.W=width_m*s; pond.L=length_m*s; pond.D=Math.max(0.35, depth_m*s*3.2);
+  pond.layerCount=layerCount;
+
+  clearGroup(pond.banks);
+  pond.slabs=[]; pond.wallPanels=[];
+  while(world.children.length>1) world.remove(world.children[world.children.length-1]);
+
+  var W=pond.W, L=pond.L, D=pond.D, RIM=Math.max(2.2, Math.min(W,L)*0.28);
+
+  function rim(w,l,x,z){
+    var m=new THREE.Mesh(new THREE.BoxGeometry(w,0.8,l),bankMat);
+    m.position.set(x,-0.4,z); pond.banks.add(m);
+    var g=new THREE.Mesh(new THREE.BoxGeometry(w,0.14,l),grassMat);
+    g.position.set(x,0.07,z); pond.banks.add(g);
+  }
+  rim(W+RIM*2,RIM,0,-(L/2+RIM/2));
+  rim(W+RIM*2,RIM,0, (L/2+RIM/2));
+  rim(RIM,L,-(W/2+RIM/2),0);
+  rim(RIM,L, (W/2+RIM/2),0);
+
+  pond.bed=new THREE.Mesh(new THREE.BoxGeometry(W,0.4,L),bedMat);
+  pond.bed.position.y=-D-0.2; pond.banks.add(pond.bed);
+
+  // dimension labels on the bund
+  var lw=makeLabel(width_m.toFixed(0)+" m");
+  lw.position.set(0,0.5,L/2+RIM*0.55); pond.banks.add(lw);
+  var ll=makeLabel(length_m.toFixed(0)+" m");
+  ll.position.set(W/2+RIM*0.55,0.5,0); pond.banks.add(ll);
+  var ld=makeLabel(depth_m.toFixed(1)+" m deep");
+  ld.position.set(-(W/2+RIM*0.55),-D*0.5,0); pond.banks.add(ld);
+
+  // water layers
+  for(var i=0;i<layerCount;i++){
+    var m=new THREE.Mesh(new THREE.BoxGeometry(W,1,L),
+      new THREE.MeshStandardMaterial({color:0x2E8FA8,transparent:true,opacity:0.28,
+        roughness:0.25,metalness:0.1,depthWrite:false}));
+    m.renderOrder=2+(layerCount-i);
+    world.add(m); pond.slabs.push(m);
+
+    var wp=new THREE.Mesh(new THREE.PlaneGeometry(W,1),
+      new THREE.MeshBasicMaterial({color:0x2E8FA8,side:THREE.DoubleSide,fog:false}));
+    wp.position.z=L/2+0.02; wp.renderOrder=40;
+    world.add(wp); pond.wallPanels.push(wp);
+  }
+
+  // surface
+  pond.surfGeo=new THREE.PlaneGeometry(W,L,Math.min(48,Math.round(W*4)),Math.min(56,Math.round(L*4)));
+  pond.surface=new THREE.Mesh(pond.surfGeo,new THREE.MeshStandardMaterial({
+    color:0x5FC6D8,transparent:true,opacity:0.40,roughness:0.08,metalness:0.55,depthWrite:false}));
+  pond.surface.rotation.x=-Math.PI/2; pond.surface.renderOrder=30;
+  world.add(pond.surface);
+  pond.surfBase=pond.surfGeo.attributes.position.array.slice();
+
+  // aerator
+  pond.aerator=new THREE.Group();
+  pond.aerator.position.set(W/2-Math.min(1.8,W*0.18),0.1,-L/2+Math.min(2.4,L*0.2));
+  world.add(pond.aerator);
+  var frameMat=new THREE.MeshStandardMaterial({color:0xB9C3C7,roughness:0.4,metalness:0.7});
+  var floatMat=new THREE.MeshStandardMaterial({color:0xE0913A,roughness:0.6});
+  var pl=new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.18,2.0,10),floatMat);
+  pl.rotation.x=Math.PI/2; pl.position.x=-0.9; pond.aerator.add(pl);
+  var pr=pl.clone(); pr.position.x=0.9; pond.aerator.add(pr);
+  pond.wheel=new THREE.Group(); pond.wheel.position.y=0.18; pond.aerator.add(pond.wheel);
+  var shaft=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,1.9,8),frameMat);
+  shaft.rotation.z=Math.PI/2; pond.wheel.add(shaft);
+  for(var p=0;p<8;p++){
+    var pad=new THREE.Mesh(new THREE.BoxGeometry(1.8,0.30,0.05),frameMat);
+    var a=(p/8)*Math.PI*2;
+    pad.position.set(0,Math.sin(a)*0.30,Math.cos(a)*0.30); pad.rotation.x=-a;
+    pond.wheel.add(pad);
+  }
+  var NB=240;
+  pond.bubData=[];
+  var bpos=new Float32Array(NB*3);
+  for(var b=0;b<NB;b++){
+    pond.bubData.push({x:(Math.random()-0.5)*2.6,z:(Math.random()-0.5)*1.7+1.0,
+      y:-Math.random()*D,v:0.55+Math.random()*0.9});
+  }
+  pond.bubGeo=new THREE.BufferGeometry();
+  pond.bubGeo.setAttribute("position",new THREE.BufferAttribute(bpos,3));
+  pond.bubbles=new THREE.Points(pond.bubGeo,new THREE.PointsMaterial({
+    color:0xDFF6FF,size:0.12,transparent:true,opacity:0.85,sizeAttenuation:true,depthWrite:false}));
+  pond.bubbles.renderOrder=35; pond.bubbles.visible=false;
+  pond.aerator.add(pond.bubbles);
+
+  // suspended solids
+  var NS=520; var spos=new Float32Array(NS*3); pond.siltData=[];
+  for(var s2=0;s2<NS;s2++){
+    pond.siltData.push({x:(Math.random()-0.5)*W,z:(Math.random()-0.5)*L,
+      y:-Math.random()*D,d:Math.random()*Math.PI*2});
+  }
+  pond.siltGeo=new THREE.BufferGeometry();
+  pond.siltGeo.setAttribute("position",new THREE.BufferAttribute(spos,3));
+  pond.silt=new THREE.Points(pond.siltGeo,new THREE.PointsMaterial({
+    color:0xBFA07A,size:0.055,transparent:true,opacity:0.28,sizeAttenuation:true,depthWrite:false}));
+  pond.silt.renderOrder=34; world.add(pond.silt);
+
+  // fish
+  pond.fishes=[];
+  for(var k=0;k<40;k++){
+    var f=makeFish(k);
+    f.userData.swim={
+      ang:Math.random()*Math.PI*2,
+      rx:(0.14+Math.random()*0.32)*W,
+      rz:(0.14+Math.random()*0.34)*L,
+      spd:0.16+Math.random()*0.22,
+      off:Math.random()*6.28,
+      y:-D*0.4, tY:-D*0.4, panic:false,
+      size:(0.55+Math.random()*0.5)*Math.min(1.5, Math.max(0.55, Math.min(W,L)/10))
+    };
+    f.scale.setScalar(f.userData.swim.size);
+    f.visible=false;
+    world.add(f); pond.fishes.push(f);
+  }
+
+  orbit.r=Math.max(16, Math.max(W,L)*1.55);
+  orbit.target.set(0,-D*0.45,0);
+  placeCamera();
+}
+
+/* ------------------------------------------------------- render a frame */
+/**
+ * frame = {
+ *   layers:[{depth_m, dissolved_oxygen}], depth_m, turbidity, wind_speed_ms,
+ *   solar_radiation, aerator_on, stock_shown, time, risk
+ * }
+ */
+function renderFrame(frame){
+  var layers=frame.layers||[];
+  if(layers.length!==pond.layerCount) return;
+
+  var D=pond.D, n=layers.length, lh=D/n;
+  var siltMix=Math.min(0.62,(frame.turbidity-4)/95);
+
+  var minV=Infinity, minD=0, bestIdx=0, bestV=-1;
+  for(var i=0;i<n;i++){
+    var v=layers[i].dissolved_oxygen;
+    var c=doColor(v).lerp(new THREE.Color(0x6E5334),siltMix);
+    var y=-(i+0.5)*lh;
+
+    var sl=pond.slabs[i];
+    sl.scale.y=lh; sl.position.y=y;
+    sl.material.color.copy(c);
+    sl.material.opacity=0.15+siltMix*0.34;
+
+    var wp=pond.wallPanels[i];
+    wp.scale.y=lh; wp.position.y=y;
+    wp.material.color.copy(c).multiplyScalar(0.94);
+
+    if(v<minV){minV=v;minD=layers[i].depth_m;}
+    if(v>bestV){bestV=v;bestIdx=i;}
+  }
+
+  pond.silt.material.opacity=0.05+siltMix*0.55;
+  pond.silt.material.color.setHex(frame.turbidity>34?0x9C7A4E:0xBFA07A);
+
+  // fish seek the best oxygen they can reach
+  var targetY=-(bestIdx+0.5)*lh;
+  var crowd=bestV<4.2;
+  var show=Math.max(0,Math.min(40,frame.stock_shown||14));
+  for(var q=0;q<pond.fishes.length;q++){
+    var f=pond.fishes[q], sw=f.userData.swim;
+    f.visible=q<show;
+    sw.tY=Math.max(-D+0.28,Math.min(-0.26,
+      targetY+(Math.random()-0.5)*(crowd?0.3:lh*2.0)));
+    sw.panic=crowd;
+  }
+
+  pond.bubbles.visible=!!frame.aerator_on;
+  pond.aerator.visible=true;
+
+  // lighting from solar radiation
+  var solar=Math.max(0,Math.min(1,(frame.solar_radiation||0)/850));
+  var night=1-Math.min(1,solar*2.6);
+  var hourGuess=frame.hour_of_day!=null?frame.hour_of_day:(solar>0?12:2);
+  var ang=Math.PI*(hourGuess-6)/12;
+  orb.position.set(Math.cos(ang)*40,Math.sin(ang)*34+3,-22);
+  var isDay=Math.sin(ang)>-0.02;
+  orb.material.color.setHex(isDay?0xFFE9B8:0xD8E4F2);
+  orb.scale.setScalar(isDay?1:0.6);
+
+  sun.position.set(Math.cos(ang)*20,Math.max(3,Math.sin(ang)*20),8);
+  sun.intensity=0.12+1.0*solar;
+  sun.color.setHex(solar>0.25?0xFFF3DC:0xBFD6F0);
+  hemi.intensity=0.22+0.38*solar;
+
+  var top=night>0.5?"#0A1330":"#2E86C8", bot=night>0.5?"#16233F":"#A9D9E8";
+  if(solar>0&&solar<0.20){top="#31406E";bot="#D08A55";}
+  paintSky(top,bot);
+  scene.fog.color.setHex(night>0.5?0x0A1220:0x18323C);
+  renderer.setClearColor(night>0.5?0x0A1220:0x18323C,1);
+  pond.surface.material.color.setHex(night>0.5?0x2A5E78:0x5FC6D8);
+  pond.surface.material.opacity=0.32+siltMix*0.28;
+
+  paintBands(layers,minV,minD,bestV,crowd,frame);
+}
+
+/* ------------------------------------------------------------ animation */
+var clock=new THREE.Clock();
+var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+var lastFrame=null;
+
+function tick(){
+  requestAnimationFrame(tick);
+  var dt=Math.min(0.05,clock.getDelta()), t=clock.elapsedTime;
+
+  if(app.playing && app.mode!=="now"){
+    var data=currentRun();
+    if(data && data.results.length){
+      app.hour+=dt*2.2;
+      if(app.hour>data.results.length){ app.hour=1; }
+      var h=Math.max(1,Math.min(data.results.length,Math.round(app.hour)));
+      document.getElementById("tlrange").value=h;
+      showHour(h,true);
+    }
+  }
+
+  if(pond.surfGeo && !reduce){
+    var pos=pond.surfGeo.attributes.position.array;
+    var wind=lastFrame?(lastFrame.wind_speed_ms||1):1;
+    var amp=0.03+wind*0.016+((lastFrame&&lastFrame.aerator_on)?0.03:0);
+    for(var i=0;i<pos.length;i+=3){
+      pos[i+2]=Math.sin(pond.surfBase[i]*1.4+t*1.5)*amp
+              +Math.cos(pond.surfBase[i+1]*1.0-t*1.1)*amp*0.8;
+    }
+    pond.surfGeo.attributes.position.needsUpdate=true;
+  }
+
+  for(var q=0;q<pond.fishes.length;q++){
+    var f=pond.fishes[q]; if(!f.visible) continue;
+    var s=f.userData.swim;
+    var speed=s.spd*(s.panic?1.9:1);
+    s.ang+=dt*speed;
+    s.y+=(s.tY-s.y)*Math.min(1,dt*1.3);
+    f.position.set(Math.cos(s.ang+s.off)*s.rx, s.y+Math.sin(t*1.5+s.off)*0.045,
+                   Math.sin(s.ang+s.off)*s.rz);
+    f.rotation.y=-(s.ang+s.off)+Math.PI/2;
+    f.rotation.z=Math.sin(t*3+s.off)*(s.panic?0.16:0.05);
+    if(f.userData.tail) f.userData.tail.rotation.y=Math.sin(t*(s.panic?13:7)+s.off)*0.55;
+  }
+
+  if(pond.bubbles && pond.bubbles.visible){
+    pond.wheel.rotation.x+=dt*5.4;
+    var arr=pond.bubGeo.attributes.position.array;
+    for(var b=0;b<pond.bubData.length;b++){
+      var bd=pond.bubData[b];
+      bd.y+=dt*bd.v;
+      if(bd.y>-0.05){
+        bd.y=-0.6-Math.random()*pond.D;
+        bd.x=(Math.random()-0.5)*2.6;
+        bd.z=(Math.random()-0.5)*1.7+1.0;
+      }
+      arr[b*3]=bd.x+Math.sin(t*2+b)*0.06; arr[b*3+1]=bd.y; arr[b*3+2]=bd.z;
+    }
+    pond.bubGeo.attributes.position.needsUpdate=true;
+  }
+
+  if(pond.siltGeo){
+    var sarr=pond.siltGeo.attributes.position.array;
+    for(var s3=0;s3<pond.siltData.length;s3++){
+      var sd=pond.siltData[s3]; sd.d+=dt*0.22;
+      sarr[s3*3]=sd.x+Math.sin(sd.d)*0.2;
+      sarr[s3*3+1]=Math.max(-pond.D+0.06,sd.y*(pond.D/3.5))+Math.sin(sd.d*0.7)*0.05;
+      sarr[s3*3+2]=sd.z+Math.cos(sd.d*0.8)*0.2;
+    }
+    pond.siltGeo.attributes.position.needsUpdate=true;
+  }
+
+  renderer.render(scene,camera);
+}
+
+window.addEventListener("resize",function(){
+  camera.aspect=stage.clientWidth/stage.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(stage.clientWidth,stage.clientHeight);
+});
+
+/* ======================================================================
+   OVERLAYS
+   ====================================================================== */
+function paintBands(layers,minV,minD,bestV,crowd,frame){
+  var el=document.getElementById("bands");
+  var html="";
+  for(var i=0;i<layers.length;i++){
+    var v=layers[i].dissolved_oxygen;
+    html+='<div class="band'+(v<4?' low':'')+'">'
+       +  '<i style="background:#'+doColor(v).getHexString()+'"></i>'
+       +  '<u>'+layers[i].depth_m.toFixed(1)+'m</u><b>'+v.toFixed(1)+'</b></div>';
+  }
+  el.innerHTML=html;
+
+  var note;
+  var spread=layers[0].dissolved_oxygen-layers[layers.length-1].dissolved_oxygen;
+  if(crowd) note="Fish crowded into the top layer. Sustained crowding is what precedes a morning kill.";
+  else if(spread>2.0) note="Fish holding above the thermocline, avoiding the lower column.";
+  else note="Fish spread through the column \u2014 oxygen is well mixed.";
+  document.getElementById("fishnote").textContent=note;
+
+  document.getElementById("clockTime").textContent=frame.clock||"--:--";
+  document.getElementById("clockPhase").textContent=frame.phase||"";
+}
+
+function hourOf(iso){
+  if(!iso) return null;
+  var m=String(iso).match(/T(\d{2}):(\d{2})/);
+  return m?parseInt(m[1],10)+parseInt(m[2],10)/60:null;
+}
+function fmtClock(iso){
+  var m=String(iso||"").match(/T(\d{2}):(\d{2})/);
+  return m?m[1]+":"+m[2]:"--:--";
+}
+function phaseOf(h){
+  if(h==null) return "";
+  if(h<5.5) return "before sunrise";
+  if(h<8) return "early morning";
+  if(h<16) return "daylight";
+  if(h<18.6) return "late afternoon";
+  return "after dark";
+}
+
+/* ======================================================================
+   RAIL RENDERING
+   ====================================================================== */
+var railBody=document.getElementById("railBody");
+
+function el(html){
+  var d=document.createElement("div"); d.innerHTML=html.trim(); return d.firstChild;
+}
+
+function sliderRow(id,label,min,max,step,value,unit){
+  return '<div class="slider"><div class="top"><span>'+label+'</span>'
+    +'<b><span id="'+id+'_v">'+value+'</span>'+(unit?(" "+unit):"")+'</b></div>'
+    +'<input type="range" id="'+id+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+value+'"></div>';
+}
+
+function wireSlider(id,fn,fmt){
+  var s=document.getElementById(id), out=document.getElementById(id+"_v");
+  s.addEventListener("input",function(){
+    var v=parseFloat(s.value);
+    out.textContent=fmt?fmt(v):v;
+    fn(v);
+  });
+}
+
+function renderRail(){
+  document.getElementById("brandMode").textContent=
+    app.mode==="now"?"live":app.mode==="forecast"?"prediction":"sandbox";
+  if(app.mode==="now") renderNowRail();
+  else if(app.mode==="forecast") renderForecastRail();
+  else renderExperimentRail();
+}
+
+/* --------------------------------------------------------------- NOW */
+function renderNowRail(){
+  var s=app.live;
+  if(!s){ railBody.innerHTML='<p class="hint">Reading the pond\u2026</p>'; return; }
+  var r=s.reading, p=s.pond;
+
+  railBody.innerHTML=
+    '<div class="verdict '+s.risk+'" id="nowVerdict"></div>'
+  + '<div class="sect"><h2>Measured now</h2>'
+  +   stat("Dissolved oxygen (surface)",r.dissolved_oxygen.toFixed(2)+" mg/L")
+  +   stat("Lowest in column",s.min_do.toFixed(2)+" mg/L")
+  +   stat("Saturation at this temp",s.saturation.toFixed(2)+" mg/L")
+  +   stat("Water temperature",r.water_temperature.toFixed(2)+" \u00B0C")
+  +   stat("pH",r.ph.toFixed(2))
+  +   stat("Turbidity",r.turbidity.toFixed(1)+" NTU")
+  +   stat("Sensor quality",r.quality)
+  + '</div>'
+  + '<div class="sect"><h2>Conditions outside</h2>'
+  +   stat("Air temperature",s.weather.air_temperature.toFixed(1)+" \u00B0C")
+  +   stat("Wind",s.weather.wind_speed_ms.toFixed(1)+" m/s")
+  +   stat("Solar radiation",Math.round(s.weather.solar_radiation)+" W/m\u00B2")
+  +   stat("Cloud",Math.round(s.weather.cloud_cover)+" %")
+  +   stat("Source",s.weather_source)
+  + '</div>'
+  + '<div class="sect"><h2>This pond</h2>'
+  +   stat("Surface",p.length_m+" \u00D7 "+p.width_m+" m")
+  +   stat("Depth",p.depth_m+" m")
+  +   stat("Volume",Math.round(s.volume_m3).toLocaleString()+" m\u00B3")
+  +   stat("Stock",p.stock_count.toLocaleString()+" \u00D7 "+p.avg_weight_g+" g")
+  +   stat("Biomass",s.biomass_kg.toFixed(0)+" kg")
+  +   stat("Density",s.density_kg_m3.toFixed(2)+" kg/m\u00B3")
+  +   stat("Stratification",s.stratification.toFixed(2)+" mg/L")
+  + '</div>'
+  + '<p class="hint">Live view is read-only on purpose. To try changes, open Experiment \u2014 it copies this state into a sandbox pond.</p>';
+
+  var v=document.getElementById("nowVerdict");
+  var t=s.thresholds;
+  if(s.risk==="safe"){
+    v.innerHTML="<b>Oxygen holding</b>Lowest layer is "+s.min_do.toFixed(1)
+      +" mg/L, above the "+t.warning+" limit for "+s.thresholds.label+".";
+  } else if(s.risk==="warning"){
+    v.innerHTML="<b>Oxygen thinning at depth</b>The column falls to "+s.min_do.toFixed(1)
+      +" mg/L. Surface reads "+r.dissolved_oxygen.toFixed(1)+", so a surface-only sensor would miss this.";
+  } else {
+    v.innerHTML="<b>Hypoxia in the lower column</b>Down to "+s.min_do.toFixed(1)
+      +" mg/L, below the "+t.critical+" critical level. Start aeration now.";
+  }
+}
+
+function stat(k,v){
+  return '<div class="stat"><span>'+k+'</span><b>'+v+'</b></div>';
+}
+
+/* ---------------------------------------------------------- FORECAST */
+var forecastOpts={horizon:12,optimise:false};
+
+function renderForecastRail(){
+  railBody.innerHTML=
+    '<div class="sect"><h2>Prediction settings</h2>'
+  +   sliderRow("fcH","Horizon",1,48,1,forecastOpts.horizon,"h")
+  +   '<button class="btn" id="fcOpt" aria-pressed="'+(forecastOpts.optimise?"true":"false")+'">'
+  +     '<span class="dot"></span> Plan the aeration<small>cheapest safe</small></button>'
+  +   '<div style="height:8px"></div>'
+  +   '<button class="btn primary" id="fcRun" style="justify-content:center">Run prediction</button>'
+  + '</div>'
+  + '<div id="fcOut"></div>';
+
+  wireSlider("fcH",function(v){forecastOpts.horizon=v;},function(v){return v;});
+  document.getElementById("fcOpt").addEventListener("click",function(){
+    forecastOpts.optimise=!forecastOpts.optimise;
+    this.setAttribute("aria-pressed",forecastOpts.optimise?"true":"false");
+  });
+  document.getElementById("fcRun").addEventListener("click",runForecast);
+
+  if(app.forecast) paintForecastOut(app.forecast);
+  else document.getElementById("fcOut").innerHTML=
+    '<p class="hint">Runs the physics engine forward from the pond\u2019s current measured state using the live weather forecast for its coordinates.</p>';
+}
+
+function paintForecastOut(d){
+  var out=document.getElementById("fcOut"); if(!out) return;
+  var risk=d.first_risk_hour?(d.hours_at_risk>0?"critical":"warning"):"safe";
+  var html='<div class="verdict '+risk+'">';
+  if(d.first_risk_hour){
+    html+="<b>Risk from hour "+d.first_risk_hour+"</b>Oxygen drops to "
+      +d.lowest_do+" mg/L and stays unsafe for "+d.hours_at_risk+" h.";
+  } else {
+    html+="<b>Clear for "+d.horizon_hours+" hours</b>Lowest point is "
+      +d.lowest_do+" mg/L, above the limit for "+d.species+".";
+  }
+  html+='</div>';
+
+  html+='<div class="sect"><h2>Aeration plan</h2>'
+     + stat("Hours running",d.aerator_hours+" h")
+     + stat("Energy",d.energy_kwh.toFixed(1)+" kWh")
+     + stat("Cost",'\u20B9'+d.energy_cost.toFixed(0))
+     + stat("Weather",d.weather_source)
+     + stat("Engine",d.engine)
+     + '</div>';
+
+  if(d.recommended_schedule){
+    var runs=[];
+    var start=null;
+    for(var i=0;i<d.recommended_schedule.length;i++){
+      if(d.recommended_schedule[i]&&start===null) start=i;
+      if((!d.recommended_schedule[i]||i===d.recommended_schedule.length-1)&&start!==null){
+        var end=d.recommended_schedule[i]?i:i-1;
+        runs.push(fmtClock(d.results[start].time)+"\u2013"+fmtClock(d.results[end].time));
+        start=null;
+      }
+    }
+    html+='<p class="hint">'+(runs.length
+      ? "Recommended: run the aerator "+runs.join(", ")+"."
+      : "No aeration needed over this horizon.")+'</p>';
+  }
+  out.innerHTML=html;
+}
+
+async function runForecast(){
+  var btn=document.getElementById("fcRun");
+  if(btn){btn.textContent="Running\u2026";btn.disabled=true;}
+  try{
+    var d=await api("/ponds/"+app.pond.id+"/forecast",{
+      method:"POST",
+      body:JSON.stringify({horizon_hours:forecastOpts.horizon,optimise:forecastOpts.optimise})
+    });
+    app.forecast=d; app.hour=1;
+    setupTimeline(d,"Lowest oxygen in the column");
+    showHour(1);
+    paintForecastOut(d);
+  }catch(e){ toast("Prediction failed: "+e.message); }
+  finally{ if(btn){btn.textContent="Run prediction";btn.disabled=false;} }
+}
+
+/* -------------------------------------------------------- EXPERIMENT */
+function seedExperiment(){
+  var p=app.pond, r=app.live?app.live.reading:null;
+  app.exp={
+    pond_id:null,
+    horizon_hours:18,
+    length_m:p.length_m,width_m:p.width_m,depth_m:p.depth_m,
+    species:p.species,stock_count:p.stock_count,avg_weight_g:p.avg_weight_g,
+    aerator_count:p.aerator_count,aerator_kw:p.aerator_kw,power_cost:p.power_cost,
+    latitude:p.latitude,longitude:p.longitude,
+    initial:{
+      dissolved_oxygen:r?r.dissolved_oxygen:6.0,
+      water_temperature:r?r.water_temperature:29.0,
+      ph:r?r.ph:7.5,
+      turbidity:r?r.turbidity:22.0
+    },
+    aerator_always:false,
+    optimise:false,
+    feed_kg_per_day:0,
+    use_live_weather:true
+  };
+}
+
+function renderExperimentRail(){
+  if(!app.exp) seedExperiment();
+  var e=app.exp;
+  var speciesOpts=app.species.map(function(s){
+    return '<option value="'+s.key+'"'+(s.key===e.species?' selected':'')+'>'+s.label+'</option>';
+  }).join("");
+
+  railBody.innerHTML=
+    '<p class="hint" style="margin-bottom:14px">A copy of '+app.pond.name+' as it is right now. '
+  + 'Nothing here is saved and the real pond is untouched.</p>'
+
+  + '<div class="sect"><h2>Pond shape</h2>'
+  +   '<div class="pair">'
+  +     field("expL","Length (m)","number",e.length_m,"1")
+  +     field("expW","Width (m)","number",e.width_m,"1")
+  +   '</div>'
+  +   field("expD","Depth (m)","number",e.depth_m,"0.1")
+  + '</div>'
+
+  + '<div class="sect"><h2>Stock</h2>'
+  +   '<div class="field"><label for="expSpecies">Species</label>'
+  +     '<select id="expSpecies">'+speciesOpts+'</select></div>'
+  +   '<div class="pair">'
+  +     field("expStock","Number of fish","number",e.stock_count,"1")
+  +     field("expWeight","Avg weight (g)","number",e.avg_weight_g,"1")
+  +   '</div>'
+  +   field("expFeed","Feed (kg/day)","number",e.feed_kg_per_day,"0.5")
+  + '</div>'
+
+  + '<div class="sect"><h2>Starting water</h2>'
+  +   sliderRow("expDO","Dissolved oxygen",1,14,0.1,e.initial.dissolved_oxygen,"mg/L")
+  +   sliderRow("expT","Water temperature",20,38,0.1,e.initial.water_temperature,"\u00B0C")
+  +   sliderRow("expTurb","Turbidity",4,90,1,e.initial.turbidity,"NTU")
+  + '</div>'
+
+  + '<div class="sect"><h2>Aeration</h2>'
+  +   '<div class="pair">'
+  +     field("expAerN","Aerators","number",e.aerator_count,"1")
+  +     field("expAerKW","kW each","number",e.aerator_kw,"0.1")
+  +   '</div>'
+  +   '<button class="btn" id="expAlways" aria-pressed="'+(e.aerator_always?"true":"false")+'">'
+  +     '<span class="dot"></span> Run aerator all night<small>every hour</small></button>'
+  +   '<button class="btn" id="expOpt" aria-pressed="'+(e.optimise?"true":"false")+'">'
+  +     '<span class="dot"></span> Find cheapest safe plan<small>auto</small></button>'
+  + '</div>'
+
+  + '<div class="sect"><h2>Run</h2>'
+  +   sliderRow("expH","Horizon",1,48,1,e.horizon_hours,"h")
+  +   '<button class="btn primary" id="expRun" style="justify-content:center">Run experiment</button>'
+  +   '<div style="height:8px"></div>'
+  +   '<button class="btn" id="expReset" style="justify-content:center">Reset to live pond state</button>'
+  + '</div>'
+  + '<div id="expOut"></div>';
+
+  // numeric inputs
+  bindNum("expL",function(v){e.length_m=v;});
+  bindNum("expW",function(v){e.width_m=v;});
+  bindNum("expD",function(v){e.depth_m=v;});
+  bindNum("expStock",function(v){e.stock_count=Math.round(v);});
+  bindNum("expWeight",function(v){e.avg_weight_g=v;});
+  bindNum("expFeed",function(v){e.feed_kg_per_day=v;});
+  bindNum("expAerN",function(v){e.aerator_count=Math.round(v);});
+  bindNum("expAerKW",function(v){e.aerator_kw=v;});
+  document.getElementById("expSpecies").addEventListener("change",function(){e.species=this.value;});
+
+  wireSlider("expDO",function(v){e.initial.dissolved_oxygen=v;},function(v){return v.toFixed(1);});
+  wireSlider("expT",function(v){e.initial.water_temperature=v;},function(v){return v.toFixed(1);});
+  wireSlider("expTurb",function(v){e.initial.turbidity=v;},function(v){return v.toFixed(0);});
+  wireSlider("expH",function(v){e.horizon_hours=v;},function(v){return v;});
+
+  document.getElementById("expAlways").addEventListener("click",function(){
+    e.aerator_always=!e.aerator_always;
+    if(e.aerator_always){e.optimise=false;document.getElementById("expOpt").setAttribute("aria-pressed","false");}
+    this.setAttribute("aria-pressed",e.aerator_always?"true":"false");
+  });
+  document.getElementById("expOpt").addEventListener("click",function(){
+    e.optimise=!e.optimise;
+    if(e.optimise){e.aerator_always=false;document.getElementById("expAlways").setAttribute("aria-pressed","false");}
+    this.setAttribute("aria-pressed",e.optimise?"true":"false");
+  });
+  document.getElementById("expRun").addEventListener("click",runExperiment);
+  document.getElementById("expReset").addEventListener("click",function(){
+    seedExperiment(); renderRail(); toast("Sandbox reset to the live pond state.");
+  });
+
+  if(app.experiment) paintExperimentOut(app.experiment);
+}
+
+function field(id,label,type,value,step){
+  return '<div class="field"><label for="'+id+'">'+label+'</label>'
+    +'<input type="'+type+'" id="'+id+'" value="'+value+'" step="'+step+'"></div>';
+}
+function bindNum(id,fn){
+  var i=document.getElementById(id);
+  i.addEventListener("change",function(){
+    var v=parseFloat(i.value);
+    if(isNaN(v)) return;
+    fn(v);
+  });
+}
+
+async function runExperiment(){
+  var e=app.exp;
+  var btn=document.getElementById("expRun");
+  btn.textContent="Running\u2026"; btn.disabled=true;
+  try{
+    var body={
+      horizon_hours:e.horizon_hours,
+      length_m:e.length_m,width_m:e.width_m,depth_m:e.depth_m,
+      species:e.species,stock_count:e.stock_count,avg_weight_g:e.avg_weight_g,
+      aerator_count:e.aerator_count,aerator_kw:e.aerator_kw,power_cost:e.power_cost,
+      latitude:e.latitude,longitude:e.longitude,
+      initial:e.initial,
+      optimise:e.optimise,
+      feed_kg_per_day:e.feed_kg_per_day,
+      use_live_weather:e.use_live_weather,
+      aerator_schedule:e.aerator_always?Array(e.horizon_hours).fill(true):null
+    };
+    var d=await api("/experiment",{method:"POST",body:JSON.stringify(body)});
+    app.experiment=d; app.hour=1;
+    buildPond(e.length_m,e.width_m,e.depth_m,d.results[0].layers.length);
+    setupTimeline(d,"Sandbox \u2014 lowest oxygen");
+    showHour(1);
+    paintExperimentOut(d);
+    document.getElementById("tag").textContent="sandbox \u00B7 not the real pond";
+  }catch(err){ toast("Experiment failed: "+err.message); }
+  finally{ btn.textContent="Run experiment"; btn.disabled=false; }
+}
+
+function paintExperimentOut(d){
+  var out=document.getElementById("expOut"); if(!out) return;
+  var risk=d.first_risk_hour?"critical":"safe";
+  var html='<div class="verdict '+risk+'">';
+  html+=d.first_risk_hour
+    ? "<b>This setup fails at hour "+d.first_risk_hour+"</b>Oxygen reaches "+d.lowest_do+" mg/L."
+    : "<b>This setup holds</b>Lowest point is "+d.lowest_do+" mg/L across "+d.horizon_hours+" hours.";
+  html+='</div>';
+  html+='<div class="sect"><h2>What it would cost</h2>'
+     + stat("Volume",Math.round(d.volume_m3).toLocaleString()+" m\u00B3")
+     + stat("Biomass",d.biomass_kg.toFixed(0)+" kg")
+     + stat("Density",d.density_kg_m3.toFixed(2)+" kg/m\u00B3")
+     + stat("Aerator hours",d.aerator_hours+" h")
+     + stat("Energy",d.energy_kwh.toFixed(1)+" kWh")
+     + stat("Cost",'\u20B9'+d.energy_cost.toFixed(0))
+     + '</div>';
+  out.innerHTML=html;
+}
+
+/* ======================================================================
+   TIMELINE
+   ====================================================================== */
+function currentRun(){
+  return app.mode==="forecast"?app.forecast:app.mode==="experiment"?app.experiment:null;
+}
+
+function setupTimeline(d,label){
+  var tl=document.getElementById("timeline");
+  tl.classList.remove("hidden");
+  document.getElementById("tlLabel").textContent=label;
+  var range=document.getElementById("tlrange");
+  range.min=1; range.max=d.results.length; range.value=1;
+  drawSpark(d);
+}
+
+function drawSpark(d){
+  var svg=document.getElementById("spark");
+  var n=d.results.length;
+  var vals=d.results.map(function(r){return r.min_do;});
+  var lo=Math.min.apply(null,vals.concat([2])), hi=Math.max.apply(null,vals.concat([8]));
+  var pad=0.6; lo-=pad; hi+=pad;
+  function X(i){return n>1?(i/(n-1))*598+1:300;}
+  function Y(v){return 54-((v-lo)/(hi-lo))*50;}
+
+  var warn=d.thresholds?d.thresholds.warning:4.5;
+  var crit=d.thresholds?d.thresholds.critical:3.0;
+
+  var path="", area="";
+  for(var i=0;i<n;i++){
+    path+=(i?" L":"M")+X(i).toFixed(1)+" "+Y(vals[i]).toFixed(1);
+  }
+  area="M1 58 "+path.slice(1)+" L599 58 Z";
+
+  var bars="";
+  for(var j=0;j<n;j++){
+    if(d.results[j].aerator_on){
+      bars+='<rect x="'+(X(j)-2)+'" y="0" width="4" height="58" fill="#3FD8A8" opacity="0.10"/>';
+    }
+  }
+
+  svg.innerHTML=
+    bars
+  + '<line x1="0" y1="'+Y(warn).toFixed(1)+'" x2="600" y2="'+Y(warn).toFixed(1)+'" stroke="#E9C46A" stroke-width="1" stroke-dasharray="4 4" opacity="0.65"/>'
+  + '<line x1="0" y1="'+Y(crit).toFixed(1)+'" x2="600" y2="'+Y(crit).toFixed(1)+'" stroke="#D7466B" stroke-width="1" stroke-dasharray="4 4" opacity="0.75"/>'
+  + '<path d="'+area+'" fill="#4FB8D8" opacity="0.10"/>'
+  + '<path d="'+path+'" fill="none" stroke="#7FD9E8" stroke-width="1.8"/>'
+  + '<circle id="sparkDot" r="3.4" fill="#E4F1F2" cx="'+X(0)+'" cy="'+Y(vals[0])+'"/>';
+
+  svg._X=X; svg._Y=Y; svg._vals=vals;
+}
+
+function showHour(h,skipRangeSync){
+  var d=currentRun(); if(!d) return;
+  var r=d.results[h-1]; if(!r) return;
+  app.hour=h;
+  if(!skipRangeSync) document.getElementById("tlrange").value=h;
+
+  var svg=document.getElementById("spark");
+  var dot=document.getElementById("sparkDot");
+  if(dot&&svg._X){ dot.setAttribute("cx",svg._X(h-1)); dot.setAttribute("cy",svg._Y(svg._vals[h-1])); }
+
+  document.getElementById("tlValue").textContent=
+    r.min_do.toFixed(2)+" mg/L \u00B7 "+fmtClock(r.time)+(r.aerator_on?" \u00B7 aerator on":"");
+
+  var hd=hourOf(r.time);
+  lastFrame={
+    layers:r.layers, turbidity:r.turbidity, wind_speed_ms:r.wind_speed_ms,
+    solar_radiation:r.solar_radiation, aerator_on:r.aerator_on,
+    stock_shown:fishCountFor(app.mode==="experiment"?app.exp.stock_count:app.pond.stock_count),
+    hour_of_day:hd, clock:fmtClock(r.time), phase:phaseOf(hd), risk:r.risk
+  };
+  renderFrame(lastFrame);
+}
+
+/** Show a readable school, scaled logarithmically from the real stock count. */
+function fishCountFor(stock){
+  if(!stock) return 0;
+  return Math.max(3,Math.min(40,Math.round(6*Math.log10(Math.max(10,stock)))+2));
+}
+
+document.getElementById("tlrange").addEventListener("input",function(){
+  app.playing=false;
+  showHour(parseInt(this.value,10));
+});
+
+/* ======================================================================
+   MODES
+   ====================================================================== */
+Array.prototype.forEach.call(document.querySelectorAll(".mode"),function(b){
+  b.addEventListener("click",function(){
+    Array.prototype.forEach.call(document.querySelectorAll(".mode"),function(x){
+      x.setAttribute("aria-selected",x===b?"true":"false");
+    });
+    app.mode=b.dataset.mode;
+    app.playing=false;
+    var tl=document.getElementById("timeline");
+
+    if(app.mode==="now"){
+      tl.classList.add("hidden");
+      document.getElementById("tag").textContent="live \u00B7 measured";
+      buildPond(app.pond.length_m,app.pond.width_m,app.pond.depth_m,
+                app.live?app.live.layers.length:12);
+      paintLive();
+    } else if(app.mode==="forecast"){
+      document.getElementById("tag").textContent="prediction";
+      buildPond(app.pond.length_m,app.pond.width_m,app.pond.depth_m,
+                app.live?app.live.layers.length:12);
+      if(app.forecast){ setupTimeline(app.forecast,"Lowest oxygen in the column"); showHour(1); }
+      else tl.classList.add("hidden");
+    } else {
+      document.getElementById("tag").textContent="sandbox \u00B7 not the real pond";
+      if(!app.exp) seedExperiment();
+      buildPond(app.exp.length_m,app.exp.width_m,app.exp.depth_m,
+                app.experiment?app.experiment.results[0].layers.length:12);
+      if(app.experiment){ setupTimeline(app.experiment,"Sandbox \u2014 lowest oxygen"); showHour(1); }
+      else tl.classList.add("hidden");
+    }
+    renderRail();
+  });
+});
+
+/* ======================================================================
+   LIVE POLLING
+   ====================================================================== */
+function paintLive(){
+  var s=app.live; if(!s) return;
+  var hd=hourOf(s.weather.time);
+  lastFrame={
+    layers:s.layers, turbidity:s.reading.turbidity,
+    wind_speed_ms:s.weather.wind_speed_ms, solar_radiation:s.weather.solar_radiation,
+    aerator_on:false, stock_shown:fishCountFor(s.pond.stock_count),
+    hour_of_day:hd, clock:fmtClock(s.weather.time), phase:phaseOf(hd), risk:s.risk
+  };
+  renderFrame(lastFrame);
+}
+
+async function refreshLive(rebuild){
+  if(!app.pond) return;
+  try{
+    var s=await api("/ponds/"+app.pond.id+"/state");
+    app.live=s;
+    if(rebuild) buildPond(s.pond.length_m,s.pond.width_m,s.pond.depth_m,s.layers.length);
+    if(app.mode==="now"){ paintLive(); renderNowRail(); }
+  }catch(e){ toast("Cannot reach the pond: "+e.message); }
+}
+
+setInterval(function(){ if(app.mode==="now") refreshLive(false); }, 20000);
+
+/* ======================================================================
+   POND MANAGEMENT
+   ====================================================================== */
+var pondSelect=document.getElementById("pondSelect");
+
+function paintPondList(){
+  pondSelect.innerHTML=app.ponds.map(function(p){
+    return '<option value="'+p.id+'"'+(app.pond&&p.id===app.pond.id?' selected':'')+'>'+p.name+'</option>';
+  }).join("");
+}
+
+pondSelect.addEventListener("change",async function(){
+  app.pond=app.ponds.filter(function(p){return p.id===this.value;}.bind(this))[0];
+  app.forecast=null; app.experiment=null; app.exp=null;
+  document.getElementById("timeline").classList.add("hidden");
+  await refreshLive(true);
+  renderRail();
+});
+
+var MODAL_FIELDS=[
+  ["name","Pond name","text",1],
+  ["length_m","Length (m)","number",1],
+  ["width_m","Width (m)","number",1],
+  ["depth_m","Depth (m)","number",0.1],
+  ["stock_count","Number of fish","number",1],
+  ["avg_weight_g","Average weight (g)","number",1],
+  ["aerator_count","Aerators","number",1],
+  ["aerator_kw","kW per aerator","number",0.1],
+  ["latitude","Latitude","number",0.0001],
+  ["longitude","Longitude","number",0.0001],
+  ["power_cost","Power cost per kWh","number",0.1]
+];
+
+var modal=document.getElementById("modal");
+var editingId=null;
+
+function openModal(pond){
+  editingId=pond?pond.id:null;
+  document.getElementById("modalTitle").textContent=pond?"Edit pond":"Add a pond";
+  document.getElementById("modalSub").textContent=pond
+    ? "Changing the shape changes how the pond behaves in every mode."
+    : "Measurements decide how the pond behaves, so use real numbers from the bund.";
+
+  var defaults={name:"Pond "+(app.ponds.length+1),length_m:40,width_m:25,depth_m:2.0,
+    stock_count:2000,avg_weight_g:120,aerator_count:1,aerator_kw:1.5,
+    latitude:8.8932,longitude:76.6141,power_cost:7.5,species:"tilapia"};
+  var src=pond||defaults;
+
+  var html='<div class="field"><label for="m_name">Pond name</label>'
+    +'<input type="text" id="m_name" value="'+src.name+'"></div>'
+    +'<div class="field"><label for="m_species">Species</label><select id="m_species">'
+    + app.species.map(function(s){
+        return '<option value="'+s.key+'"'+(s.key===src.species?' selected':'')+'>'+s.label+'</option>';
+      }).join("")
+    +'</select></div><div class="trio">';
+
+  ["length_m","width_m","depth_m"].forEach(function(k){
+    var f=MODAL_FIELDS.filter(function(x){return x[0]===k;})[0];
+    html+='<div class="field"><label for="m_'+k+'">'+f[1]+'</label>'
+      +'<input type="number" id="m_'+k+'" step="'+f[3]+'" value="'+src[k]+'"></div>';
+  });
+  html+='</div><div class="pair">';
+  ["stock_count","avg_weight_g","aerator_count","aerator_kw","latitude","longitude"].forEach(function(k){
+    var f=MODAL_FIELDS.filter(function(x){return x[0]===k;})[0];
+    html+='<div class="field"><label for="m_'+k+'">'+f[1]+'</label>'
+      +'<input type="number" id="m_'+k+'" step="'+f[3]+'" value="'+src[k]+'"></div>';
+  });
+  html+='</div>';
+  html+='<div class="field"><label for="m_power_cost">Power cost per kWh</label>'
+    +'<input type="number" id="m_power_cost" step="0.1" value="'+src.power_cost+'"></div>';
+
+  if(pond && app.ponds.length>1){
+    html+='<button class="btn" id="m_delete" style="justify-content:center;color:#E6879F;border-color:#4A2130">Delete this pond</button>';
+  }
+
+  document.getElementById("modalForm").innerHTML=html;
+  modal.classList.add("open");
+
+  var del=document.getElementById("m_delete");
+  if(del) del.addEventListener("click",async function(){
+    try{
+      await api("/ponds/"+pond.id,{method:"DELETE"});
+      modal.classList.remove("open");
+      await loadPonds(); toast("Pond deleted.");
+    }catch(e){ toast("Delete failed: "+e.message); }
+  });
+}
+
+document.getElementById("btnNewPond").addEventListener("click",function(){ openModal(null); });
+document.getElementById("btnEditPond").addEventListener("click",function(){ openModal(app.pond); });
+document.getElementById("modalCancel").addEventListener("click",function(){ modal.classList.remove("open"); });
+modal.addEventListener("click",function(e){ if(e.target===modal) modal.classList.remove("open"); });
+
+document.getElementById("modalSave").addEventListener("click",async function(){
+  var body={ name:document.getElementById("m_name").value.trim() || "Untitled pond",
+             species:document.getElementById("m_species").value };
+  ["length_m","width_m","depth_m","stock_count","avg_weight_g",
+   "aerator_count","aerator_kw","latitude","longitude","power_cost"].forEach(function(k){
+    body[k]=parseFloat(document.getElementById("m_"+k).value);
+  });
+  body.stock_count=Math.round(body.stock_count);
+  body.aerator_count=Math.round(body.aerator_count);
+
+  try{
+    if(editingId) await api("/ponds/"+editingId,{method:"PATCH",body:JSON.stringify(body)});
+    else{
+      var created=await api("/ponds",{method:"POST",body:JSON.stringify(body)});
+      editingId=created.id;
+    }
+    modal.classList.remove("open");
+    await loadPonds(editingId);
+    toast("Pond saved.");
+  }catch(e){ toast("Save failed: "+e.message); }
+});
+
+/* ======================================================================
+   BOOT
+   ====================================================================== */
+async function loadPonds(selectId){
+  app.ponds=await api("/ponds");
+  if(!app.ponds.length){ toast("No ponds yet \u2014 add one to begin."); return; }
+  app.pond=app.ponds.filter(function(p){return p.id===(selectId||(app.pond&&app.pond.id));})[0]
+           || app.ponds[0];
+  paintPondList();
+  app.forecast=null; app.experiment=null; app.exp=null;
+  await refreshLive(true);
+  renderRail();
+}
+
+async function boot(){
+  try{
+    app.species=await api("/species");
+    await loadPonds();
+    document.getElementById("tag").textContent="live \u00B7 measured";
+  }catch(e){
+    toast("Backend not reachable. Is uvicorn running on port 8000?");
+    document.getElementById("tag").textContent="offline";
+  }
+  tick();
+}
+
+boot();
+})();
+</script>
+</body>
+</html>
