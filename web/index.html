@@ -499,7 +499,34 @@ function buildPond(length_m, width_m, depth_m, layerCount){
   pond.slabs=[]; pond.wallPanels=[];
   while(world.children.length>1) world.remove(world.children[world.children.length-1]);
 
-  var W=pond.W, L=pond.L, D=pond.D, RIM=Math.max(2.2, Math.min(W,L)*0.28);
+  // buildPond clears the 3D world, so restore the fish models that were
+  // created during startup and reset their wandering state for this pond.
+  var W=pond.W, L=pond.L, D=pond.D;
+  for(var fq=0; fq<pond.fishes.length; fq++){
+    var ff=pond.fishes[fq];
+    var fs=ff.userData.swim || {};
+    fs.x=(Math.random()-0.5)*W*0.78;
+    fs.z=(Math.random()-0.5)*L*0.78;
+    fs.ang=Math.random()*Math.PI*2;
+    fs.targetAng=fs.ang+(Math.random()-0.5)*Math.PI;
+    fs.rx=(0.14+Math.random()*0.32)*W;
+    fs.rz=(0.14+Math.random()*0.34)*L;
+    fs.spd=0.16+Math.random()*0.22;
+    fs.turn=0.45+Math.random()*0.75;
+    fs.wander=0.8+Math.random()*1.5;
+    fs.nextTurn=0.8+Math.random()*2.8;
+    fs.off=Math.random()*6.28;
+    fs.y=-D*0.4;
+    fs.tY=-D*0.4;
+    fs.panic=false;
+    fs.size=(0.55+Math.random()*0.5)*Math.min(1.5, Math.max(0.55, Math.min(W,L)/10));
+    ff.userData.swim=fs;
+    ff.scale.setScalar(fs.size);
+    ff.visible=false;
+    world.add(ff);
+  }
+
+  var RIM=Math.max(2.2, Math.min(W,L)*0.28);
 
   function rim(w,l,x,z){
     var m=new THREE.Mesh(new THREE.BoxGeometry(w,0.8,l),bankMat);
