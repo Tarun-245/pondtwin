@@ -503,8 +503,10 @@ function buildPond(length_m, width_m, depth_m, layerCount){
   clearGroup(pond.banks);
   pond.slabs=[]; pond.wallPanels=[];
 
-  // Rebuild all pond geometry, but keep fish in a dedicated group.
-  while(world.children.length>1) world.remove(world.children[world.children.length-1]);
+  // Rebuild all pond geometry. Keep the persistent bank group, while
+  // fish remain in their own dedicated group.
+  clearGroup(world);
+  world.add(pond.banks);
   clearGroup(fishGroup);
 
   var W=pond.W, L=pond.L, D=pond.D, RIM=Math.max(2.2, Math.min(W,L)*0.28);
@@ -770,9 +772,9 @@ function tick(){
     s.z += Math.sin(s.ang)*speed*dt;
 
     // Turn around smoothly near pond boundaries.
-    var edgeX=W*0.43, edgeZ=L*0.43;
-    var marginX=Math.max(0.5,W*0.10);
-    var marginZ=Math.max(0.5,L*0.10);
+    var edgeX=pond.W*0.43, edgeZ=pond.L*0.43;
+    var marginX=Math.max(0.5,pond.W*0.10);
+    var marginZ=Math.max(0.5,pond.L*0.10);
 
     if(s.x>edgeX-marginX){
       s.targetAng=Math.PI-Math.abs(s.ang)+
@@ -795,7 +797,7 @@ function tick(){
 
     // Independent depth movement.
     s.tY += Math.sin(t*0.35+s.off)*dt*0.04;
-    s.tY=Math.max(-D+0.28,Math.min(-0.28,s.tY));
+    s.tY=Math.max(-pond.D+0.28,Math.min(-0.28,s.tY));
     s.y+=(s.tY-s.y)*Math.min(1,dt*1.1);
 
     f.position.set(
@@ -1334,15 +1336,27 @@ Array.prototype.forEach.call(document.querySelectorAll(".mode"),function(b){
       document.getElementById("tag").textContent="prediction";
       buildPond(app.pond.length_m,app.pond.width_m,app.pond.depth_m,
                 app.live?app.live.layers.length:12);
-      if(app.forecast){ setupTimeline(app.forecast,"Lowest oxygen in the column"); showHour(1); }
-      else tl.classList.add("hidden");
+      if(app.forecast){
+        setupTimeline(app.forecast,"Lowest oxygen in the column");
+        showHour(1);
+      } else {
+        tl.classList.add("hidden");
+        // Keep the 3D scene populated with the current measured pond state
+        // until the user runs the forward prediction.
+        paintLive();
+      }
     } else {
       document.getElementById("tag").textContent="sandbox \u00B7 not the real pond";
       if(!app.exp) seedExperiment();
       buildPond(app.exp.length_m,app.exp.width_m,app.exp.depth_m,
                 app.experiment?app.experiment.results[0].layers.length:12);
-      if(app.experiment){ setupTimeline(app.experiment,"Sandbox \u2014 lowest oxygen"); showHour(1); }
-      else tl.classList.add("hidden");
+      if(app.experiment){
+        setupTimeline(app.experiment,"Sandbox — lowest oxygen");
+        showHour(1);
+      } else {
+        tl.classList.add("hidden");
+        paintLive();
+      }
     }
     renderRail();
   });
