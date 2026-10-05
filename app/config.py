@@ -8,10 +8,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     app_name: str = "Aquaculture Pond Digital Twin"
-    version: str = "2.0.0"
+    version: str = "2.1.0"
 
     # Storage
-    database_path: str = str(BASE_DIR / "data" / "pondtwin.db")
+    supabase_url: str = ""
+    supabase_publishable_key: str = ""
+    upstream_timeout_seconds: float = 15.0
+    telemetry_stale_seconds: int = 600
+    thingspeak_history_results: int = 2000
 
     # CORS: list real origins, never "*" with credentials
     cors_origins: list[str] = [

@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Literal
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+Species = Literal["tilapia", "vannamei", "carp", "pangasius", "seabass"]
 
 
 class PondCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, str_strip_whitespace=True)
     name: str = Field(..., min_length=1, max_length=80)
     latitude: float = Field(8.8932, ge=-90, le=90)
     longitude: float = Field(76.6141, ge=-180, le=180)
     length_m: float = Field(40.0, gt=1, le=1000)
     width_m: float = Field(25.0, gt=1, le=1000)
     depth_m: float = Field(2.0, gt=0.3, le=8)
-    species: str = "tilapia"
+    species: Species = "tilapia"
     stock_count: int = Field(2000, ge=0, le=5_000_000)
     avg_weight_g: float = Field(120.0, gt=0, le=20000)
     aerator_count: int = Field(1, ge=0, le=20)
@@ -21,13 +25,14 @@ class PondCreate(BaseModel):
 
 
 class PondUpdate(BaseModel):
-    name: str | None = None
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, str_strip_whitespace=True)
+    name: str | None = Field(None, min_length=1, max_length=80)
     latitude: float | None = Field(None, ge=-90, le=90)
     longitude: float | None = Field(None, ge=-180, le=180)
     length_m: float | None = Field(None, gt=1, le=1000)
     width_m: float | None = Field(None, gt=1, le=1000)
     depth_m: float | None = Field(None, gt=0.3, le=8)
-    species: str | None = None
+    species: Species | None = None
     stock_count: int | None = Field(None, ge=0, le=5_000_000)
     avg_weight_g: float | None = Field(None, gt=0, le=20000)
     aerator_count: int | None = Field(None, ge=0, le=20)
@@ -36,10 +41,34 @@ class PondUpdate(BaseModel):
 
 
 class ForecastRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     horizon_hours: int = Field(12, ge=1, le=48)
     aerator_schedule: list[bool] | None = None
     optimise: bool = False
     feed_kg_per_day: float = Field(0.0, ge=0, le=5000)
+
+    @model_validator(mode="after")
+    def check_schedule(self):
+        if self.aerator_schedule is not None and len(self.aerator_schedule) != self.horizon_hours:
+            raise ValueError("Aerator schedule must contain one value per forecast hour.")
+        return self
+
+
+class ThingSpeakConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel_id: int = Field(..., gt=0, le=2_147_483_647)
+    read_api_key: str | None = Field(None, max_length=128, pattern=r"^[A-Za-z0-9]*$")
+    field_map: dict[str, int]
+
+    @model_validator(mode="after")
+    def check_fields(self):
+        required = {"water_temperature", "ph", "dissolved_oxygen", "turbidity"}
+        if set(self.field_map) != required:
+            raise ValueError("Map temperature, pH, dissolved oxygen, and turbidity.")
+        values = list(self.field_map.values())
+        if len(set(values)) != 4 or any(v < 1 or v > 8 for v in values):
+            raise ValueError("Choose four different ThingSpeak fields, each from 1 to 8.")
+        return self
 
 
 class StateOverride(BaseModel):
@@ -51,6 +80,7 @@ class StateOverride(BaseModel):
 
 
 class ExperimentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     """Sandbox run. Nothing here is written back to the pond record."""
 
     pond_id: str | None = None
@@ -59,7 +89,7 @@ class ExperimentRequest(BaseModel):
     length_m: float = Field(40.0, gt=1, le=1000)
     width_m: float = Field(25.0, gt=1, le=1000)
     depth_m: float = Field(2.0, gt=0.3, le=8)
-    species: str = "tilapia"
+    species: Species = "tilapia"
     stock_count: int = Field(2000, ge=0, le=5_000_000)
     avg_weight_g: float = Field(120.0, gt=0, le=20000)
     aerator_count: int = Field(1, ge=0, le=20)
@@ -74,3 +104,9 @@ class ExperimentRequest(BaseModel):
     optimise: bool = False
     feed_kg_per_day: float = Field(0.0, ge=0, le=5000)
     use_live_weather: bool = True
+
+    @model_validator(mode="after")
+    def check_schedule(self):
+        if self.aerator_schedule is not None and len(self.aerator_schedule) != self.horizon_hours:
+            raise ValueError("Aerator schedule must contain one value per experiment hour.")
+        return self

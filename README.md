@@ -39,8 +39,9 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 Then open **http://127.0.0.1:8000** in a browser.
 
-On first start the database is created and one example pond is seeded. Use the
-**+** button next to the pond name to add your own.
+Before opening the site, complete [BACKEND_SETUP.md](BACKEND_SETUP.md).
+Farmers sign in first. A new account starts without ponds and is prompted to
+add one. Each farmer can only read or change their own ponds.
 
 ### Run the tests
 
@@ -48,11 +49,11 @@ On first start the database is created and one example pond is seeded. Use the
 pytest -q
 ```
 
-Thirteen tests covering saturation, mass conservation in the depth profile,
-aerator transfer collapsing at saturation, and depth actually changing
-behaviour.
+Tests cover authentication, owner-scoped API requests, ThingSpeak parsing,
+stale and invalid readings, and the existing physics engine. Mocked upstream
+tests do not replace live Supabase RLS and deployment verification.
 
-### Optional configuration
+### Configuration
 
 ```bash
 cp .env.example .env
@@ -68,14 +69,14 @@ Every setting is prefixed `PONDTWIN_`. Nothing is hard-coded in source.
 pondtwin/
 ├── app/
 │   ├── config.py      settings from environment
-│   ├── db.py          SQLite: ponds, readings, forecasts
+│   ├── db.py          Supabase persistence using the farmer JWT
 │   ├── engine.py      the physics
 │   ├── weather.py     Open-Meteo client, cached, hour-aligned
-│   ├── telemetry.py   sensor sampling + quality checks
+│   ├── telemetry.py   ThingSpeak ingestion + quality checks
 │   ├── schemas.py     request/response models
 │   └── main.py        API routes and UI host
 ├── web/index.html     the 3D interface, single file
-├── tests/             physics tests
+├── tests/             backend and physics tests
 └── requirements.txt
 ```
 
@@ -85,7 +86,9 @@ pondtwin/
 
 ```
 GET    /healthz                          liveness
-GET    /readyz                           readiness (checks the database)
+GET    /readyz                           authenticated database readiness
+GET    /api/v1/public-config             public Supabase URL + publishable key
+GET    /api/v1/me                        verified farmer
 GET    /api/v1/species                   species and their oxygen thresholds
 
 GET    /api/v1/ponds                     list ponds
@@ -94,12 +97,16 @@ GET    /api/v1/ponds/{id}                read
 PATCH  /api/v1/ponds/{id}                update
 DELETE /api/v1/ponds/{id}                delete
 
+GET    /api/v1/ponds/{id}/connection     channel/field mapping; no key value returned
+PUT    /api/v1/ponds/{id}/connection     configure ThingSpeak
 GET    /api/v1/ponds/{id}/state          current state with depth profile
 GET    /api/v1/ponds/{id}/history        stored readings
 POST   /api/v1/ponds/{id}/forecast       prediction  {horizon_hours, optimise}
 POST   /api/v1/experiment                sandbox run, writes nothing
 GET    /api/v1/weather                   raw forecast
 ```
+
+All pond, experiment, weather, and readiness endpoints require a Supabase Bearer token.
 
 Interactive docs at http://127.0.0.1:8000/docs
 
@@ -140,9 +147,14 @@ mode the 3D view is built to expose.
 
 Read these before showing it to anyone who will ask hard questions.
 
-- **Telemetry is synthetic.** Readings are generated, not measured. They travel
-  the real path — sample, quality-check, persist — so swapping in probes means
-  replacing one function. But nothing here is a measurement yet.
+- **ThingSpeak configuration is required.** Channel ID and four field mappings
+  must match the ESP32 setup; private channels also need a Read API Key.
+  Unconnected ponds never receive fake readings.
+- **Free hosting sleeps.** Sensor history stays in ThingSpeak and is imported
+  on demand, up to 2,000 readings by default. Long gaps can exceed that window.
+- **Farmer email verification needs SMTP.** Supabase's default email service
+  only sends to project-team addresses. Configure an email provider before
+  inviting other farmers; confirmation remains enabled.
 - **The model is uncalibrated.** Every coefficient is a literature-typical
   value, not one fitted to your pond. It is physically shaped, not accurate.
 - **Single deterministic run.** No ensemble, so no probability of hypoxia. That
@@ -153,25 +165,21 @@ Read these before showing it to anyone who will ask hard questions.
 - **No ammonia, nitrite or alkalinity chemistry.** pH moves with net production
   buffered by alkalinity, which is a sketch of the carbonate system, not the
   system itself. Unionised ammonia is a real cause of loss and is not modelled.
-- **No authentication or multi-tenancy.** Every pond is visible to every
-  visitor. Fine on your laptop, not fine on the internet.
+- **Live verification is pending setup.** Apply the defined RLS schema and
+  test with two real farmer accounts before publishing.
 - **No alerting.** A forecast nobody sees at 2 AM is worth nothing.
 
 ---
 
-## Where the learned model goes
+## Transformer integration
 
-`PhysicsEngine` in `engine.py` has one entry point:
+The trained model is absent from the supplied ZIP and repository. The existing
+physics forecasts remain explicitly labelled, and the API reports that the
+Transformer is unavailable.
 
-```python
-run(cfg, initial, weather, options) -> dict
-```
-
-A learned model implements the same signature. The strong version is a residual
-correction — let the physics produce the trajectory and have the model predict
-its error — because it stays physically plausible and needs far less data than
-learning the dynamics outright.
-
-Before that is worth doing, two things need to exist: enough stored readings to
-train on, and an evaluation harness with persistence and climatology baselines.
-If a model cannot beat persistence at three hours, that is worth knowing early.
+Integration requires the checkpoint, model class/config, saved scaler,
+exact feature order, input history length, sampling interval and forecast
+horizon used during training. The parameters are temperature, pH, dissolved
+oxygen and turbidity. Use original timestamps and the exact training
+preprocessing. Do not guess the sampling window or label physics output as a
+Transformer prediction.

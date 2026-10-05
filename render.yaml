@@ -9,7 +9,11 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
-      - key: PONDTWIN_DATABASE_PATH
-        value: /tmp/pondtwin.db
+      - key: PONDTWIN_SUPABASE_URL
+        sync: false
+      - key: PONDTWIN_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: PONDTWIN_CORS_ORIGINS
+        value: '["https://pondtwin.onrender.com"]'
       - key: PONDTWIN_TELEMETRY_INTERVAL_SECONDS
         value: "60"

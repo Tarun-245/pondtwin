@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sign in · PondTwin</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,sans-serif;color:#e4f1f3;background:#081217}
+    *{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px}
+    main{width:min(420px,100%);padding:32px;border:1px solid #26424c;border-radius:16px;background:#102028}
+    .brand{color:#8ebdad;font-size:14px;margin:0 0 28px}h1{font-size:25px;letter-spacing:-.6px;margin:0 0 12px}
+    p{color:#9eb3bb;font-size:14px;line-height:1.6}label{display:block;font-size:13px;margin-top:20px}
+    input,button{font:inherit;width:100%;border-radius:8px;padding:12px}
+    input{border:1px solid #35515c;background:#0b181e;color:#eff9fa;margin-top:7px}
+    input:focus-visible,button:focus-visible{outline:2px solid #70bea5;outline-offset:3px}
+    button{border:1px solid #428572;background:#185048;color:#eff9fa;cursor:pointer;margin-top:24px}
+    button:disabled{opacity:.65;cursor:wait}.toggle{background:none;border:0;color:#a1d0c0;margin-top:12px;padding:10px}
+    [hidden]{display:none!important}#message{min-height:24px;overflow-wrap:anywhere}#message.error{color:#efabb9}
+  </style>
+</head>
+<body>
+<main>
+  <p class="brand">PondTwin</p>
+  <h1 id="heading">Sign in to your ponds</h1>
+  <p id="intro">Monitor your pond readings and explore the digital twin.</p>
+  <form id="authForm">
+    <div id="nameField" hidden><label for="name">Your name</label><input id="name" autocomplete="name" maxlength="80"></div>
+    <label for="email">Email</label><input id="email" type="email" autocomplete="email" required maxlength="254">
+    <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128">
+    <button id="submit" type="submit">Sign in</button>
+  </form>
+  <button id="toggle" type="button" class="toggle">New farmer? Create an account</button>
+  <p id="message" role="status" aria-live="polite"></p>
+</main>
+<script src="/static/vendor/supabase.js"></script>
+<script src="/static/auth-client.js"></script>
+<script src="/static/login.js"></script>
+</body>
+</html>

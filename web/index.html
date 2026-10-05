@@ -34,7 +34,13 @@
   }
   button,input,select{font-family:inherit;}
 
-  #shell{display:grid;grid-template-columns:312px 1fr;height:100vh;}
+  #shell{display:grid;grid-template-columns:312px 1fr;height:100vh;visibility:hidden;}
+  #authLoading{position:fixed;inset:0;display:grid;place-items:center;background:#081217;z-index:80;color:#9eb3bb;}
+  .account{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;font-size:11px;color:var(--ink-3);}
+  .account span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .account button{background:none;border:0;color:var(--ink-2);cursor:pointer;white-space:nowrap;}
+  button:disabled{opacity:.45;cursor:not-allowed;}
+  .field input[type=password]{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:7px 9px;color:var(--ink);font-size:12.5px;}
 
   /* ============ LEFT RAIL ============ */
   #rail{
@@ -205,12 +211,14 @@
 </style>
 </head>
 <body>
+<div id="authLoading" role="status">Checking your account…</div>
 
 <div id="shell">
 
   <aside id="rail">
     <div id="railHead">
       <p class="brand">Pond Twin <em>/ <span id="brandMode">live</span></em></p>
+      <div class="account"><span id="farmerEmail"></span><button id="signOut" type="button">Sign out</button></div>
       <div class="pondpick">
         <select id="pondSelect" aria-label="Select pond"></select>
         <button class="icobtn" id="btnNewPond" title="Add a pond" aria-label="Add a pond">+</button>
@@ -233,7 +241,7 @@
     <div class="overlay" id="hint">Drag to orbit &middot; scroll to zoom</div>
 
     <div class="overlay" id="scale">
-      <h3>Oxygen by depth</h3>
+      <h3>Estimated oxygen by depth</h3>
       <div id="bands"></div>
       <div id="fishnote"></div>
     </div>
@@ -261,6 +269,8 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="/static/vendor/supabase.js"></script>
+<script src="/static/auth-client.js"></script>
 <script>
 (function(){
 "use strict";
@@ -271,17 +281,48 @@
 var API = "/api/v1";
 
 async function api(path, opts){
-  var res = await fetch(API + path, Object.assign({
-    headers: { "Content-Type": "application/json" }
-  }, opts || {}));
+  var token = await window.pondToken();
+  var options = Object.assign({}, opts || {});
+  options.headers = Object.assign({}, options.headers || {}, {
+    "Content-Type": "application/json", "Authorization": "Bearer " + token
+  });
+  var res = await fetch(API + path, options);
+  if (res.status === 401) {
+    var client = await window.pondAuth();
+    await client.auth.signOut({scope: "local"});
+    window.location.replace("/login");
+    throw new Error("Your session ended. Please sign in again.");
+  }
   if (!res.ok){
     var detail = "";
     try { detail = (await res.json()).detail || ""; } catch(_){}
+    if (Array.isArray(detail)) detail = detail.map(function(d){return d.msg;}).join(" ");
     throw new Error(detail || (res.status + " " + res.statusText));
   }
   if (res.status === 204) return null;
   return res.json();
 }
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, function(c) {
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+
+document.getElementById("signOut").addEventListener("click", async function () {
+  document.getElementById("shell").style.visibility = "hidden";
+  document.getElementById("authLoading").style.display = "grid";
+  try {
+    var client = await window.pondAuth();
+    var result = await client.auth.signOut({scope: "local"});
+    if (result.error) throw result.error;
+    window.location.replace("/login");
+  } catch (error) {
+    document.getElementById("shell").style.visibility = "visible";
+    document.getElementById("authLoading").style.display = "none";
+    toast("Sign out failed: " + error.message);
+  }
+});
 
 function toast(msg){
   var el = document.getElementById("toast");
@@ -903,7 +944,7 @@ function el(html){
 function sliderRow(id,label,min,max,step,value,unit){
   return '<div class="slider"><div class="top"><span>'+label+'</span>'
     +'<b><span id="'+id+'_v">'+value+'</span>'+(unit?(" "+unit):"")+'</b></div>'
-    +'<input type="range" id="'+id+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+value+'"></div>';
+    +'<input type="range" id="'+id+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+escapeHtml(value)+'"></div>';
 }
 
 function wireSlider(id,fn,fmt){
@@ -931,9 +972,12 @@ function renderNowRail(){
 
   railBody.innerHTML=
     '<div class="verdict '+s.risk+'" id="nowVerdict"></div>'
-  + '<div class="sect"><h2>Measured now</h2>'
+  + '<div class="sect"><h2>Sensor readings</h2>'
+  +   stat("Source", "ThingSpeak")
+  +   stat("Observed", escapeHtml(new Date(s.observed_at).toLocaleString()))
+  +   stat("Status", s.telemetry_stale ? "Old sensor data" : "Current")
   +   stat("Dissolved oxygen (surface)",r.dissolved_oxygen.toFixed(2)+" mg/L")
-  +   stat("Lowest in column",s.min_do.toFixed(2)+" mg/L")
+  +   stat("Estimated lowest at depth",s.min_do.toFixed(2)+" mg/L")
   +   stat("Saturation at this temp",s.saturation.toFixed(2)+" mg/L")
   +   stat("Water temperature",r.water_temperature.toFixed(2)+" \u00B0C")
   +   stat("pH",r.ph.toFixed(2))
@@ -954,13 +998,16 @@ function renderNowRail(){
   +   stat("Stock",p.stock_count.toLocaleString()+" \u00D7 "+p.avg_weight_g+" g")
   +   stat("Biomass",s.biomass_kg.toFixed(0)+" kg")
   +   stat("Density",s.density_kg_m3.toFixed(2)+" kg/m\u00B3")
-  +   stat("Stratification",s.stratification.toFixed(2)+" mg/L")
+  +   stat("Estimated stratification",s.stratification.toFixed(2)+" mg/L")
   + '</div>'
-  + '<p class="hint">Live view is read-only on purpose. To try changes, open Experiment \u2014 it copies this state into a sandbox pond.</p>';
+  + '<p class="hint">Depth values and current forecasts are physics estimates. Experiment lets you try changes in a sandbox.</p>';
 
   var v=document.getElementById("nowVerdict");
   var t=s.thresholds;
-  if(s.risk==="safe"){
+  if(s.telemetry_stale){
+    v.className="verdict warning";
+    v.innerHTML="<b>Old sensor data</b>The pond has not sent a recent reading. Check the sensor connection before using these values.";
+  } else if(s.risk==="safe"){
     v.innerHTML="<b>Oxygen holding</b>Lowest layer is "+s.min_do.toFixed(1)
       +" mg/L, above the "+t.warning+" limit for "+s.thresholds.label+".";
   } else if(s.risk==="warning"){
@@ -1088,7 +1135,7 @@ function renderExperimentRail(){
   }).join("");
 
   railBody.innerHTML=
-    '<p class="hint" style="margin-bottom:14px">A copy of '+app.pond.name+' as it is right now. '
+    '<p class="hint" style="margin-bottom:14px">A copy of '+escapeHtml(app.pond.name)+' as it is right now. '
   + 'Nothing here is saved and the real pond is untouched.</p>'
 
   + '<div class="sect"><h2>Pond shape</h2>'
@@ -1319,6 +1366,7 @@ document.getElementById("tlrange").addEventListener("input",function(){
    ====================================================================== */
 Array.prototype.forEach.call(document.querySelectorAll(".mode"),function(b){
   b.addEventListener("click",function(){
+    if(!app.pond) return;
     Array.prototype.forEach.call(document.querySelectorAll(".mode"),function(x){
       x.setAttribute("aria-selected",x===b?"true":"false");
     });
@@ -1379,30 +1427,37 @@ function paintLive(){
 
 async function refreshLive(rebuild){
   if(!app.pond) return;
+  var requestedId=app.pond.id;
   try{
-    var s=await api("/ponds/"+app.pond.id+"/state");
+    var s=await api("/ponds/"+requestedId+"/state");
+    if(!app.pond || app.pond.id!==requestedId) return;
     app.live=s;
     if(rebuild) buildPond(s.pond.length_m,s.pond.width_m,s.pond.depth_m,s.layers.length);
+    world.visible=true;
+    document.getElementById("tag").textContent=s.telemetry_stale?"old sensor data":"ThingSpeak · depth estimated";
     if(app.mode==="now"){ paintLive(); renderNowRail(); }
-  }catch(e){ toast("Cannot reach the pond: "+e.message); }
+  }catch(e){
+    if(!app.pond || app.pond.id!==requestedId) return;
+    app.live=null;
+    world.visible=false;
+    document.getElementById("bands").textContent="";
+    document.getElementById("fishnote").textContent="";
+    document.getElementById("tag").textContent="Waiting for pond readings";
+    if(app.mode==="now") railBody.innerHTML='<p class="hint">'+escapeHtml(e.message)+'</p>';
+    toast(e.message);
+  }
 }
+setInterval(function(){ if(app.mode==="now") refreshLive(false); }, 60000);
 
-setInterval(function(){ if(app.mode==="now") refreshLive(false); }, 20000);
-
-/* ======================================================================
-   POND MANAGEMENT
-   ====================================================================== */
 var pondSelect=document.getElementById("pondSelect");
-
 function paintPondList(){
   pondSelect.innerHTML=app.ponds.map(function(p){
-    return '<option value="'+p.id+'"'+(app.pond&&p.id===app.pond.id?' selected':'')+'>'+p.name+'</option>';
+    return '<option value="'+p.id+'"'+(app.pond&&p.id===app.pond.id?' selected':'')+'>'+escapeHtml(p.name)+'</option>';
   }).join("");
 }
-
 pondSelect.addEventListener("change",async function(){
   app.pond=app.ponds.filter(function(p){return p.id===this.value;}.bind(this))[0];
-  app.forecast=null; app.experiment=null; app.exp=null;
+  app.forecast=null;app.experiment=null;app.exp=null;app.live=null;
   document.getElementById("timeline").classList.add("hidden");
   await refreshLive(true);
   renderRail();
@@ -1421,115 +1476,137 @@ var MODAL_FIELDS=[
   ["longitude","Longitude","number",0.0001],
   ["power_cost","Power cost per kWh","number",0.1]
 ];
+var sensorFields=[["water_temperature","Water temperature"],["ph","pH"],
+                  ["dissolved_oxygen","Dissolved oxygen"],["turbidity","Turbidity"]];
+var modal=document.getElementById("modal"), editingId=null, modalGeneration=0;
 
-var modal=document.getElementById("modal");
-var editingId=null;
-
-function openModal(pond){
-  editingId=pond?pond.id:null;
-  document.getElementById("modalTitle").textContent=pond?"Edit pond":"Add a pond";
-  document.getElementById("modalSub").textContent=pond
-    ? "Changing the shape changes how the pond behaves in every mode."
-    : "Measurements decide how the pond behaves, so use real numbers from the bund.";
-
-  var defaults={name:"Pond "+(app.ponds.length+1),length_m:40,width_m:25,depth_m:2.0,
+async function openModal(currentPond){
+  var generation=++modalGeneration, connection=null;
+  if(currentPond){
+    try{ connection=await api("/ponds/"+currentPond.id+"/connection"); }
+    catch(error){ toast(error.message); return; }
+  }
+  if(generation!==modalGeneration) return;
+  editingId=currentPond?currentPond.id:null;
+  document.getElementById("modalTitle").textContent=currentPond?"Edit pond":"Add a pond";
+  document.getElementById("modalSub").textContent="Use your pond's measurements and the sensor fields configured on ThingSpeak.";
+  var src=currentPond||{name:"Pond "+(app.ponds.length+1),length_m:40,width_m:25,depth_m:2,
     stock_count:2000,avg_weight_g:120,aerator_count:1,aerator_kw:1.5,
     latitude:8.8932,longitude:76.6141,power_cost:7.5,species:"tilapia"};
-  var src=pond||defaults;
-
   var html='<div class="field"><label for="m_name">Pond name</label>'
-    +'<input type="text" id="m_name" value="'+src.name+'"></div>'
+    +'<input type="text" id="m_name" maxlength="80" value="'+escapeHtml(src.name)+'"></div>'
     +'<div class="field"><label for="m_species">Species</label><select id="m_species">'
-    + app.species.map(function(s){
-        return '<option value="'+s.key+'"'+(s.key===src.species?' selected':'')+'>'+s.label+'</option>';
-      }).join("")
-    +'</select></div><div class="trio">';
-
-  ["length_m","width_m","depth_m"].forEach(function(k){
-    var f=MODAL_FIELDS.filter(function(x){return x[0]===k;})[0];
-    html+='<div class="field"><label for="m_'+k+'">'+f[1]+'</label>'
-      +'<input type="number" id="m_'+k+'" step="'+f[3]+'" value="'+src[k]+'"></div>';
+    +app.species.map(function(x){return '<option value="'+x.key+'"'+(x.key===src.species?' selected':'')+'>'+escapeHtml(x.label)+'</option>';}).join("")
+    +'</select></div><div class="pair">';
+  MODAL_FIELDS.slice(1).forEach(function(f){
+    html+='<div class="field"><label for="m_'+f[0]+'">'+f[1]+'</label>'
+      +'<input type="number" id="m_'+f[0]+'" step="'+f[3]+'" value="'+src[f[0]]+'"></div>';
   });
-  html+='</div><div class="pair">';
-  ["stock_count","avg_weight_g","aerator_count","aerator_kw","latitude","longitude"].forEach(function(k){
-    var f=MODAL_FIELDS.filter(function(x){return x[0]===k;})[0];
-    html+='<div class="field"><label for="m_'+k+'">'+f[1]+'</label>'
-      +'<input type="number" id="m_'+k+'" step="'+f[3]+'" value="'+src[k]+'"></div>';
+  html+='</div><div class="sect"><h2>ThingSpeak sensors</h2>'
+    +'<p class="hint">Map each parameter to its ESP32 sensor field. Leave Channel ID empty to connect later.</p>'
+    +'<div class="field"><label for="m_channel">Channel ID</label><input type="number" id="m_channel" min="1" step="1" value="'+(connection?connection.channel_id:"")+'"></div>'
+    +'<div class="field"><label for="m_readKey">Read API Key (private channels)</label><input type="password" id="m_readKey" maxlength="128" autocomplete="off" placeholder="'+(connection&&connection.has_read_api_key?"Saved key · leave blank to keep":"Leave blank for a public channel")+'"></div>';
+  if(connection&&connection.has_read_api_key){
+    html+='<label><input type="checkbox" id="m_clearKey"> Remove the saved Read API Key</label>';
+  }
+  sensorFields.forEach(function(item){
+    html+='<div class="field"><label for="m_field_'+item[0]+'">'+item[1]+'</label><select id="m_field_'+item[0]+'"><option value="">Choose field</option>';
+    for(var n=1;n<=8;n++) html+='<option value="'+n+'"'+(connection&&connection.field_map[item[0]]===n?' selected':'')+'>Field '+n+'</option>';
+    html+='</select></div>';
   });
   html+='</div>';
-  html+='<div class="field"><label for="m_power_cost">Power cost per kWh</label>'
-    +'<input type="number" id="m_power_cost" step="0.1" value="'+src.power_cost+'"></div>';
-
-  if(pond && app.ponds.length>1){
-    html+='<button class="btn" id="m_delete" style="justify-content:center;color:#E6879F;border-color:#4A2130">Delete this pond</button>';
-  }
-
+  if(currentPond) html+='<button class="btn" id="m_delete" style="justify-content:center;color:#E6879F;border-color:#4A2130">Delete this pond</button>';
   document.getElementById("modalForm").innerHTML=html;
   modal.classList.add("open");
-
+  document.getElementById("m_name").focus();
   var del=document.getElementById("m_delete");
   if(del) del.addEventListener("click",async function(){
+    if(!window.confirm("Delete this pond and its stored sensor history? This cannot be undone.")) return;
     try{
-      await api("/ponds/"+pond.id,{method:"DELETE"});
+      await api("/ponds/"+currentPond.id,{method:"DELETE"});
       modal.classList.remove("open");
-      await loadPonds(); toast("Pond deleted.");
-    }catch(e){ toast("Delete failed: "+e.message); }
+      await loadPonds();toast("Pond deleted.");
+    }catch(error){toast("Delete failed: "+error.message);}
   });
 }
-
-document.getElementById("btnNewPond").addEventListener("click",function(){ openModal(null); });
-document.getElementById("btnEditPond").addEventListener("click",function(){ openModal(app.pond); });
-document.getElementById("modalCancel").addEventListener("click",function(){ modal.classList.remove("open"); });
-modal.addEventListener("click",function(e){ if(e.target===modal) modal.classList.remove("open"); });
+document.getElementById("btnNewPond").addEventListener("click",function(){openModal(null);});
+document.getElementById("btnEditPond").addEventListener("click",function(){if(app.pond)openModal(app.pond);});
+document.getElementById("modalCancel").addEventListener("click",function(){++modalGeneration;modal.classList.remove("open");});
+modal.addEventListener("click",function(e){if(e.target===modal){++modalGeneration;modal.classList.remove("open");}});
+document.addEventListener("keydown",function(e){if(e.key==="Escape"){++modalGeneration;modal.classList.remove("open");}});
 
 document.getElementById("modalSave").addEventListener("click",async function(){
-  var body={ name:document.getElementById("m_name").value.trim() || "Untitled pond",
-             species:document.getElementById("m_species").value };
-  ["length_m","width_m","depth_m","stock_count","avg_weight_g",
-   "aerator_count","aerator_kw","latitude","longitude","power_cost"].forEach(function(k){
-    body[k]=parseFloat(document.getElementById("m_"+k).value);
-  });
-  body.stock_count=Math.round(body.stock_count);
-  body.aerator_count=Math.round(body.aerator_count);
-
+  var body={name:document.getElementById("m_name").value.trim(),species:document.getElementById("m_species").value};
+  MODAL_FIELDS.slice(1).forEach(function(f){body[f[0]]=Number(document.getElementById("m_"+f[0]).value);});
+  if(!body.name){document.getElementById("m_name").focus();toast("Enter a pond name.");return;}
+  if(MODAL_FIELDS.slice(1).some(function(f){return !document.getElementById("m_"+f[0]).value.trim()||!Number.isFinite(body[f[0]]);})){
+    toast("Fill in all pond measurements.");return;
+  }
+  if(!Number.isInteger(body.stock_count)||!Number.isInteger(body.aerator_count)){toast("Enter whole numbers for fish and aerators.");return;}
+  var channelInput=document.getElementById("m_channel").value.trim(), connection=null;
+  if(channelInput){
+    var channelId=Number(channelInput), mapping={};
+    sensorFields.forEach(function(f){mapping[f[0]]=Number(document.getElementById("m_field_"+f[0]).value);});
+    var values=Object.keys(mapping).map(function(k){return mapping[k];});
+    if(!Number.isInteger(channelId)||channelId<1||values.some(function(v){return v<1||v>8;})||new Set(values).size!==4){
+      toast("Enter a valid Channel ID and choose four different sensor fields.");return;
+    }
+    connection={channel_id:channelId,field_map:mapping};
+    var key=document.getElementById("m_readKey").value.trim();
+    if(key) connection.read_api_key=key;
+    if(document.getElementById("m_clearKey")&&document.getElementById("m_clearKey").checked) connection.read_api_key="";
+  }
+  this.disabled=true;
   try{
     if(editingId) await api("/ponds/"+editingId,{method:"PATCH",body:JSON.stringify(body)});
-    else{
-      var created=await api("/ponds",{method:"POST",body:JSON.stringify(body)});
-      editingId=created.id;
-    }
+    else{var created=await api("/ponds",{method:"POST",body:JSON.stringify(body)});editingId=created.id;}
+    if(connection) await api("/ponds/"+editingId+"/connection",{method:"PUT",body:JSON.stringify(connection)});
+    document.getElementById("m_readKey").value="";
     modal.classList.remove("open");
-    await loadPonds(editingId);
-    toast("Pond saved.");
-  }catch(e){ toast("Save failed: "+e.message); }
+    await loadPonds(editingId);toast("Pond saved.");
+  }catch(error){toast("Save failed: "+error.message);}
+  finally{this.disabled=false;}
 });
 
-/* ======================================================================
-   BOOT
-   ====================================================================== */
 async function loadPonds(selectId){
   app.ponds=await api("/ponds");
-  if(!app.ponds.length){ toast("No ponds yet \u2014 add one to begin."); return; }
-  app.pond=app.ponds.filter(function(p){return p.id===(selectId||(app.pond&&app.pond.id));})[0]
-           || app.ponds[0];
+  app.live=null;app.forecast=null;app.experiment=null;app.exp=null;app.mode="now";
+  document.querySelectorAll(".mode").forEach(function(b){
+    b.setAttribute("aria-selected",b.dataset.mode==="now"?"true":"false");b.disabled=!app.ponds.length;
+  });
+  document.getElementById("btnEditPond").disabled=!app.ponds.length;
+  document.getElementById("timeline").classList.add("hidden");
+  if(!app.ponds.length){
+    app.pond=null;world.visible=false;
+    document.getElementById("bands").textContent="";document.getElementById("fishnote").textContent="";
+    document.getElementById("tag").textContent="Add your first pond";
+    pondSelect.innerHTML='<option>No ponds yet</option>';
+    railBody.innerHTML='<p class="hint">Add your first pond to start monitoring.</p><button class="btn primary" id="firstPond">Add a pond</button>';
+    document.getElementById("firstPond").addEventListener("click",function(){openModal(null);});
+    await openModal(null);return;
+  }
+  app.pond=app.ponds.filter(function(p){return p.id===(selectId||(app.pond&&app.pond.id));})[0]||app.ponds[0];
   paintPondList();
-  app.forecast=null; app.experiment=null; app.exp=null;
   await refreshLive(true);
-  renderRail();
+  if(app.live)renderRail();
 }
 
 async function boot(){
   try{
+    var me=await api("/me");
+    document.getElementById("farmerEmail").textContent=me.email;
+    var auth=await window.pondAuth();
+    auth.auth.onAuthStateChange(function(event){if(event==="SIGNED_OUT")window.location.replace("/login");});
     app.species=await api("/species");
+    document.getElementById("shell").style.visibility="visible";
+    document.getElementById("authLoading").style.display="none";
     await loadPonds();
-    document.getElementById("tag").textContent="live \u00B7 measured";
-  }catch(e){
-    toast("Backend not reachable. Is uvicorn running on port 8000?");
-    document.getElementById("tag").textContent="offline";
+  }catch(error){
+    document.getElementById("authLoading").style.display="grid";
+    document.getElementById("authLoading").textContent=error.message||"PondTwin is temporarily unavailable.";
   }
   tick();
 }
-
 boot();
 })();
 </script>

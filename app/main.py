@@ -8,12 +8,13 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, telemetry, weather
+from .auth import require_store
 from .config import BASE_DIR, settings
 from .engine import (
     SPECIES,
@@ -27,50 +28,27 @@ from .engine import (
     species_thresholds,
     stratification_strength,
 )
-from .schemas import ExperimentRequest, ForecastRequest, PondCreate, PondUpdate
+from .schemas import ExperimentRequest, ForecastRequest, PondCreate, PondUpdate, ThingSpeakConfig
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 log = logging.getLogger("pondtwin")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 WEB_DIR = BASE_DIR / "web"
 
 
 # --------------------------------------------------------------- lifecycle
 
-async def telemetry_loop() -> None:
-    """Sample every pond on a fixed cadence so history accumulates whether or
-    not anyone has a browser open."""
-    while True:
-        try:
-            for pond in db.list_ponds():
-                telemetry.record(pond)
-        except Exception:                                   # noqa: BLE001
-            log.exception("telemetry loop failed")
-        await asyncio.sleep(settings.telemetry_interval_seconds)
-
-
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.init_db()
-    if not db.list_ponds():
-        db.create_pond({
-            "name": "Grow-out pond 1",
-            "latitude": 8.8932, "longitude": 76.6141,
-            "length_m": 40.0, "width_m": 25.0, "depth_m": 2.2,
-            "species": "tilapia", "stock_count": 2400, "avg_weight_g": 140.0,
-            "aerator_count": 1, "aerator_kw": 1.5, "power_cost": 7.5,
-        })
-        log.info("seeded first pond")
-    task = asyncio.create_task(telemetry_loop())
-    try:
-        yield
-    finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+    # Free Render services sleep. Sensor history stays in ThingSpeak and is
+    # imported when the farmer opens a pond, using their authenticated session.
+    # No shared seed pond and no privileged service key/background user scan.
+    yield
 
 
 app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)
@@ -79,7 +57,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -94,12 +72,19 @@ def healthz():
 
 
 @app.get("/readyz")
-def readyz():
-    try:
-        db.list_ponds()
-    except Exception as exc:                                # noqa: BLE001
-        raise HTTPException(503, f"database unavailable: {exc}") from exc
+def readyz(store: db.Store = Depends(require_store)):
+    store.list_ponds()
     return {"status": "ready"}
+
+
+@app.get(f"{API}/public-config")
+def public_config():
+    return db.public_config()
+
+
+@app.get(f"{API}/me")
+def me(store: db.Store = Depends(require_store)):
+    return store.user
 
 
 @app.get(f"{API}/species")
@@ -110,36 +95,56 @@ def species():
 # ------------------------------------------------------------------- ponds
 
 @app.get(f"{API}/ponds")
-def list_ponds():
-    return db.list_ponds()
+def list_ponds(store: db.Store = Depends(require_store)):
+    return store.list_ponds()
 
 
 @app.post(f"{API}/ponds", status_code=201)
-def create_pond(payload: PondCreate):
-    pond = db.create_pond(payload.model_dump())
-    telemetry.record(pond)
-    return pond
+def create_pond(payload: PondCreate, store: db.Store = Depends(require_store)):
+    return store.create_pond(payload.model_dump())
 
 
 @app.get(f"{API}/ponds/{{pond_id}}")
-def get_pond(pond_id: str):
-    pond = db.get_pond(pond_id)
+def get_pond(pond_id: str, store: db.Store = Depends(require_store)):
+    pond = store.get_pond(pond_id)
     if not pond:
         raise HTTPException(404, "pond not found")
     return pond
 
 
 @app.patch(f"{API}/ponds/{{pond_id}}")
-def update_pond(pond_id: str, payload: PondUpdate):
-    if not db.get_pond(pond_id):
+def update_pond(pond_id: str, payload: PondUpdate, store: db.Store = Depends(require_store)):
+    if not store.get_pond(pond_id):
         raise HTTPException(404, "pond not found")
-    return db.update_pond(pond_id, payload.model_dump(exclude_unset=True))
+    return store.update_pond(pond_id, payload.model_dump(exclude_unset=True, exclude_none=True))
 
 
 @app.delete(f"{API}/ponds/{{pond_id}}", status_code=204)
-def delete_pond(pond_id: str):
-    if not db.delete_pond(pond_id):
+def delete_pond(pond_id: str, store: db.Store = Depends(require_store)):
+    if not store.delete_pond(pond_id):
         raise HTTPException(404, "pond not found")
+
+
+@app.get(f"{API}/ponds/{{pond_id}}/connection")
+def get_connection(pond_id: str, store: db.Store = Depends(require_store)):
+    if not store.get_pond(pond_id):
+        raise HTTPException(404, "pond not found")
+    return telemetry.safe_connection(store.connection(pond_id))
+
+
+@app.put(f"{API}/ponds/{{pond_id}}/connection")
+def set_connection(pond_id: str, payload: ThingSpeakConfig, store: db.Store = Depends(require_store)):
+    if not store.get_pond(pond_id):
+        raise HTTPException(404, "pond not found")
+    previous = store.connection(pond_id)
+    proposed = payload.model_dump()
+    # Changing a channel/mapping after readings exist mixes incompatible sensor
+    # series. Preserve history and ask for a separate pond rather than deleting.
+    if previous and store.latest_reading(pond_id) and (
+        previous["channel_id"] != proposed["channel_id"] or previous["field_map"] != proposed["field_map"]
+    ):
+        raise HTTPException(409, "This pond already has sensor history. Add a separate pond for a different channel or field mapping.")
+    return telemetry.safe_connection(store.save_connection(pond_id, proposed))
 
 
 # -------------------------------------------------------------- live state
@@ -159,13 +164,13 @@ def _config_from_pond(pond: dict) -> PondConfig:
 
 
 @app.get(f"{API}/ponds/{{pond_id}}/state")
-async def pond_state(pond_id: str):
+async def pond_state(pond_id: str, store: db.Store = Depends(require_store)):
     """What the pond is doing right now, resolved through the water column."""
-    pond = db.get_pond(pond_id)
+    pond = await asyncio.to_thread(store.get_pond, pond_id)
     if not pond:
         raise HTTPException(404, "pond not found")
 
-    reading = telemetry.record(pond)
+    reading = await asyncio.to_thread(telemetry.record, pond, store)
     hours, source = await weather.resolve(pond["latitude"], pond["longitude"], 1)
     w = hours[0]
 
@@ -191,6 +196,10 @@ async def pond_state(pond_id: str):
     return {
         "pond": pond,
         "observed_at": reading["ts"],
+        "telemetry_source": "thingspeak",
+        "telemetry_stale": telemetry.is_stale(reading),
+        "depth_profile_source": "physics_estimate",
+        "transformer_available": False,
         "weather_source": source,
         "reading": reading,
         "weather": {
@@ -214,10 +223,11 @@ async def pond_state(pond_id: str):
 
 
 @app.get(f"{API}/ponds/{{pond_id}}/history")
-def pond_history(pond_id: str, limit: int = 288):
-    if not db.get_pond(pond_id):
+def pond_history(pond_id: str, limit: int = Query(288, ge=1, le=2000),
+                 store: db.Store = Depends(require_store)):
+    if not store.get_pond(pond_id):
         raise HTTPException(404, "pond not found")
-    return db.reading_history(pond_id, min(limit, 2000))
+    return store.reading_history(pond_id, limit)
 
 
 # ---------------------------------------------------------------- forecast
@@ -236,13 +246,15 @@ def _initial_state(reading: dict, override=None) -> WaterState:
 
 
 @app.post(f"{API}/ponds/{{pond_id}}/forecast")
-async def forecast(pond_id: str, payload: ForecastRequest):
+async def forecast(pond_id: str, payload: ForecastRequest, store: db.Store = Depends(require_store)):
     """The prediction for the real pond, from its real current state."""
-    pond = db.get_pond(pond_id)
+    pond = await asyncio.to_thread(store.get_pond, pond_id)
     if not pond:
         raise HTTPException(404, "pond not found")
 
-    reading = db.latest_reading(pond["id"]) or telemetry.record(pond)
+    reading = await asyncio.to_thread(telemetry.record, pond, store)
+    if telemetry.is_stale(reading):
+        raise HTTPException(409, "Sensor data is too old for a current forecast. Check the pond sensors.")
     hours, source = await weather.resolve(
         pond["latitude"], pond["longitude"], payload.horizon_hours
     )
@@ -264,14 +276,17 @@ async def forecast(pond_id: str, payload: ForecastRequest):
     result["initial"] = initial.__dict__
     result["pond_id"] = pond_id
 
-    db.save_forecast(pond_id, payload.horizon_hours, result["engine"], result)
+    result["telemetry_source"] = "thingspeak"
+    result["observed_at"] = reading["ts"]
+    result["transformer_available"] = False
+    await asyncio.to_thread(store.save_forecast, pond_id, payload.horizon_hours, result["engine"], result)
     return result
 
 
 # -------------------------------------------------------------- experiment
 
 @app.post(f"{API}/experiment")
-async def experiment(payload: ExperimentRequest):
+async def experiment(payload: ExperimentRequest, store: db.Store = Depends(require_store)):
     """Sandbox.
 
     Takes an arbitrary pond configuration and starting state, runs the same
@@ -283,10 +298,10 @@ async def experiment(payload: ExperimentRequest):
     latitude, longitude = payload.latitude, payload.longitude
 
     if payload.pond_id:
-        pond = db.get_pond(payload.pond_id)
+        pond = await asyncio.to_thread(store.get_pond, payload.pond_id)
         if not pond:
             raise HTTPException(404, "pond not found")
-        reading = db.latest_reading(pond["id"]) or telemetry.record(pond)
+        reading = await asyncio.to_thread(telemetry.record, pond, store)
         initial = _initial_state(reading)
         latitude, longitude = pond["latitude"], pond["longitude"]
 
@@ -332,7 +347,10 @@ async def experiment(payload: ExperimentRequest):
 # ----------------------------------------------------------------- weather
 
 @app.get(f"{API}/weather")
-async def get_weather(latitude: float = 8.8932, longitude: float = 76.6141, hours: int = 24):
+async def get_weather(latitude: float = Query(8.8932, ge=-90, le=90),
+                      longitude: float = Query(76.6141, ge=-180, le=180),
+                      hours: int = Query(24, ge=1, le=48),
+                      store: db.Store = Depends(require_store)):
     try:
         return await weather.forecast(latitude, longitude, hours)
     except weather.WeatherUnavailable as exc:
@@ -347,6 +365,10 @@ if WEB_DIR.exists():
     @app.get("/", include_in_schema=False)
     def index():
         return FileResponse(WEB_DIR / "index.html")
+
+    @app.get("/login", include_in_schema=False)
+    def login():
+        return FileResponse(WEB_DIR / "login.html")
 
 
 if __name__ == "__main__":

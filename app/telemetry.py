@@ -1,100 +1,114 @@
-"""Telemetry.
-
-Right now readings are synthesised per pond, but they travel the same path a
-real sensor will: generate -> quality check -> persist. When you wire up actual
-probes, only `sample()` gets replaced. The QA layer and the store stay.
-"""
-
-from __future__ import annotations
-
-import math
-import random
+"""Real ThingSpeak ingestion. Missing data never becomes simulated telemetry."""
 from datetime import datetime, timezone
+import math
 
-from . import db
-from .engine import do_saturation
+import httpx
+from fastapi import HTTPException
 
-# Plausible operating ranges. A reading outside these is flagged, not stored
-# as truth, so bad sensors cannot quietly poison the training set later.
-RANGES = {
-    "dissolved_oxygen": (0.0, 20.0),
-    "water_temperature": (5.0, 45.0),
-    "ph": (4.0, 11.0),
-    "turbidity": (0.0, 400.0),
-}
+from .config import settings
+
+RANGES = {"dissolved_oxygen": (0.0, 20.0), "water_temperature": (5.0, 45.0),
+          "ph": (4.0, 11.0), "turbidity": (0.0, 400.0)}
 
 
-def quality_flag(reading: dict, previous: dict | None) -> str:
+def parse_time(value):
+    dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        raise ValueError("Sensor timestamps must include a timezone.")
+    return dt.astimezone(timezone.utc)
+
+
+def safe_connection(connection):
+    if not connection:
+        return None
+    return {k: connection.get(k) for k in ("channel_id", "field_map", "synced_at")} | {
+        "has_read_api_key": bool(connection.get("read_api_key"))}
+
+
+def quality_flag(reading, previous=None):
     for key, (lo, hi) in RANGES.items():
         value = reading.get(key)
         if value is None:
             return "missing"
-        if not (lo <= value <= hi):
+        if not math.isfinite(value) or not lo <= value <= hi:
             return "out_of_range"
-
-    if previous:
-        if abs(reading["water_temperature"] - previous["water_temperature"]) > 4.0:
+    if previous and previous.get("quality", "ok") == "ok":
+        # Only compare nearby samples; a legitimate day-long change is not
+        # equivalent to a spike between consecutive minute readings.
+        gap = (parse_time(reading["ts"]) - parse_time(previous["ts"])).total_seconds()
+        if 0 < gap <= 300 and (
+            abs(reading["water_temperature"] - previous["water_temperature"]) > 4.0
+            or abs(reading["dissolved_oxygen"] - previous["dissolved_oxygen"]) > 5.0
+        ):
             return "spike"
-        if abs(reading["dissolved_oxygen"] - previous["dissolved_oxygen"]) > 5.0:
-            return "spike"
-        same = all(
-            abs(reading[k] - previous[k]) < 1e-6
-            for k in ("dissolved_oxygen", "water_temperature", "ph", "turbidity")
-        )
-        if same:
-            return "stuck"
-
     return "ok"
 
 
-def sample(pond: dict) -> dict:
-    """Synthetic but physically-shaped pond telemetry."""
-    now = datetime.now()
-    hour = now.hour + now.minute / 60 + now.second / 3600
-    rng = random.Random(int(now.timestamp() // 5) ^ hash(pond["id"]) & 0xFFFF)
-
-    solar = max(0.0, math.sin(math.pi * (hour - 6) / 12))
-    depth = pond["depth_m"]
-
-    temp = (
-        27.6
-        + 2.9 * math.sin(2 * math.pi * (hour - 8.5) / 24) * (2.0 / max(0.8, depth)) ** 0.4
-        + rng.uniform(-0.2, 0.2)
-    )
-    temp = max(22.0, min(34.5, temp))
-
-    sat = do_saturation(temp)
-    density = (pond["stock_count"] * pond["avg_weight_g"] / 1000.0) / max(
-        1.0, pond["length_m"] * pond["width_m"] * depth
-    )
-
-    do = (
-        sat * 0.62
-        + 2.3 * solar
-        - 1.15 * math.cos(2 * math.pi * (hour - 5) / 24)
-        - 3.2 * density
-        + rng.uniform(-0.12, 0.12)
-    )
-    do = max(1.2, min(sat * 1.35, do))
-
-    ph = 7.3 + 0.42 * solar - 0.1 * (1 - solar) + rng.uniform(-0.03, 0.03)
-    turbidity = 17 + 5 * math.sin(2 * math.pi * hour / 24 + 1.2) + rng.uniform(-1.2, 1.2)
-
-    return {
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "dissolved_oxygen": round(do, 2),
-        "water_temperature": round(temp, 2),
-        "ph": round(max(6.4, min(9.0, ph)), 2),
-        "turbidity": round(max(4.0, min(80.0, turbidity)), 1),
-        "saturation": round(sat, 2),
-        "solar_factor": round(solar, 3),
-    }
+def parse_feeds(feeds, field_map, previous=None):
+    readings, skipped = [], 0
+    now = datetime.now(timezone.utc)
+    for feed in feeds:
+        try:
+            stamp = parse_time(feed["created_at"])
+            entry_id = int(feed["entry_id"])
+            if entry_id <= 0 or (stamp - now).total_seconds() > 120:
+                raise ValueError("Invalid entry.")
+        except (ValueError, KeyError, TypeError, OverflowError):
+            skipped += 1
+            continue
+        reading = {"ts": stamp.isoformat(), "entry_id": entry_id, "source": "thingspeak"}
+        for key, field in field_map.items():
+            try:
+                value = float(feed.get(f"field{field}"))
+                reading[key] = value if math.isfinite(value) else None
+            except (ValueError, TypeError, OverflowError):
+                reading[key] = None
+        readings.append(reading)
+    readings.sort(key=lambda r: (r["ts"], r["entry_id"]))
+    for reading in readings:
+        reading["quality"] = quality_flag(reading, previous)
+        previous = reading
+    return readings, skipped
 
 
-def record(pond: dict) -> dict:
-    reading = sample(pond)
-    previous = db.latest_reading(pond["id"])
-    reading["quality"] = quality_flag(reading, previous)
-    if reading["quality"] in ("ok", "spike"):
-        db.insert_reading(pond["id"], reading, source="synthetic")
+def is_stale(reading):
+    age = (datetime.now(timezone.utc) - parse_time(reading["ts"])).total_seconds()
+    return age > settings.telemetry_stale_seconds or age < -120
+
+
+def record(pond, store):
+    connection = store.connection(pond["id"])
+    if not connection:
+        raise HTTPException(409, "Connect this pond to ThingSpeak using Edit pond.")
+    previous = store.latest_reading(pond["id"])
+    synced = connection.get("synced_at")
+    if previous and synced and (
+        datetime.now(timezone.utc) - parse_time(synced)
+    ).total_seconds() < settings.telemetry_interval_seconds:
+        reading = previous
+    else:
+        params = {"results": min(8000, max(1, settings.thingspeak_history_results))}
+        if connection.get("read_api_key"):
+            params["api_key"] = connection["read_api_key"]
+        if previous:
+            params["start"] = parse_time(previous["ts"]).strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with httpx.Client(timeout=settings.upstream_timeout_seconds, follow_redirects=False) as client:
+                res = client.get(
+                    f"https://api.thingspeak.com/channels/{connection['channel_id']}/feeds.json", params=params)
+            if not res.is_success:
+                raise ValueError("Upstream rejected request.")
+            data = res.json()
+            if not isinstance(data, dict) or not isinstance(data.get("feeds"), list):
+                raise ValueError("Invalid response.")
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(502, "Cannot read ThingSpeak. Check the Channel ID, Read API Key, and sensor connection.") from exc
+        readings, _ = parse_feeds(data["feeds"], connection["field_map"], previous)
+        store.insert_readings(pond["id"], readings)
+        store.mark_synced(pond["id"])
+        reading = store.latest_reading(pond["id"])
+    if not reading:
+        raise HTTPException(409, "ThingSpeak has no readings for this pond yet.")
+    if reading["quality"] != "ok":
+        raise HTTPException(409, "The latest sensor reading failed validation. Check the sensors and field mapping.")
     return reading
