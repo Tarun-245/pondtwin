@@ -272,7 +272,7 @@
 <script src="/static/vendor/supabase.js"></script>
 <script src="/static/auth-client.js"></script>
 <script>
-(function(){
+(async function(){
 "use strict";
 
 /* ======================================================================
@@ -332,6 +332,15 @@ function toast(msg){
   el._t = setTimeout(function(){ el.classList.remove("show"); }, 4200);
 }
 
+// Authentication must complete even when this browser cannot start the 3D viewer.
+var signedInUser;
+try {
+  signedInUser = await api("/me");
+} catch (error) {
+  document.getElementById("authLoading").textContent = error.message || "PondTwin is temporarily unavailable.";
+  return;
+}
+
 /* ======================================================================
    APP STATE
    ====================================================================== */
@@ -355,11 +364,23 @@ var RISK_COLOR = { safe:"#3FD8A8", warning:"#E9C46A", critical:"#D7466B", lethal
    THREE SCENE
    ====================================================================== */
 var stage = document.getElementById("stage");
-var renderer = new THREE.WebGLRenderer({ antialias:true });
+var renderer = null;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias:true });
+} catch (error) {
+  var viewerNote = document.createElement("p");
+  viewerNote.className = "hint";
+  viewerNote.setAttribute("role", "status");
+  viewerNote.textContent = "3D view unavailable in this browser. Your ponds and sensor data are still available. Enable WebGL to see the digital twin.";
+  viewerNote.style.cssText = "position:absolute;top:90px;left:24px;right:24px;max-width:440px;z-index:2";
+  stage.appendChild(viewerNote);
+}
+if (renderer) {
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(stage.clientWidth, stage.clientHeight);
 renderer.outputEncoding = THREE.sRGBEncoding;
 stage.appendChild(renderer.domElement);
+}
 
 var scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x0A1418, 34, 96);
@@ -377,7 +398,7 @@ function placeCamera(){
 placeCamera();
 
 var drag=null;
-var cv = renderer.domElement;
+var cv = renderer ? renderer.domElement : document.createElement("canvas");
 cv.addEventListener("pointerdown",function(e){drag={x:e.clientX,y:e.clientY};cv.setPointerCapture(e.pointerId);});
 cv.addEventListener("pointermove",function(e){
   if(!drag) return;
@@ -750,7 +771,7 @@ function renderFrame(frame){
   if(solar>0&&solar<0.20){top="#31406E";bot="#D08A55";}
   paintSky(top,bot);
   scene.fog.color.setHex(night>0.5?0x0A1220:0x18323C);
-  renderer.setClearColor(night>0.5?0x0A1220:0x18323C,1);
+  if(renderer) renderer.setClearColor(night>0.5?0x0A1220:0x18323C,1);
   pond.surface.material.color.setHex(night>0.5?0x2A5E78:0x5FC6D8);
   pond.surface.material.opacity=0.32+siltMix*0.28;
 
@@ -776,6 +797,8 @@ function tick(){
       showHour(h,true);
     }
   }
+
+  if(!renderer) return;
 
   if(pond.surfGeo && !reduce){
     var pos=pond.surfGeo.attributes.position.array;
@@ -886,7 +909,7 @@ function tick(){
 window.addEventListener("resize",function(){
   camera.aspect=stage.clientWidth/stage.clientHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(stage.clientWidth,stage.clientHeight);
+  if(renderer) renderer.setSize(stage.clientWidth,stage.clientHeight);
 });
 
 /* ======================================================================
@@ -1593,7 +1616,7 @@ async function loadPonds(selectId){
 
 async function boot(){
   try{
-    var me=await api("/me");
+    var me=signedInUser;
     document.getElementById("farmerEmail").textContent=me.email;
     var auth=await window.pondAuth();
     auth.auth.onAuthStateChange(function(event){if(event==="SIGNED_OUT")window.location.replace("/login");});
