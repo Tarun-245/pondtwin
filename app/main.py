@@ -29,6 +29,7 @@ from .engine import (
     stratification_strength,
 )
 from .schemas import ExperimentRequest, ForecastRequest, PondCreate, PondUpdate, ThingSpeakConfig
+from .devices import resolve_connection
 
 logging.basicConfig(
     level=logging.INFO,
@@ -101,7 +102,8 @@ def list_ponds(store: db.Store = Depends(require_store)):
 
 @app.post(f"{API}/ponds", status_code=201)
 def create_pond(payload: PondCreate, store: db.Store = Depends(require_store)):
-    return store.create_pond(payload.model_dump())
+    connection = resolve_connection(payload.connection, store) if payload.connection else None
+    return store.save_pond(payload.model_dump(exclude={"connection"}), connection)
 
 
 @app.get(f"{API}/ponds/{{pond_id}}")
@@ -114,9 +116,12 @@ def get_pond(pond_id: str, store: db.Store = Depends(require_store)):
 
 @app.patch(f"{API}/ponds/{{pond_id}}")
 def update_pond(pond_id: str, payload: PondUpdate, store: db.Store = Depends(require_store)):
-    if not store.get_pond(pond_id):
+    pond = store.get_pond(pond_id)
+    if not pond:
         raise HTTPException(404, "pond not found")
-    return store.update_pond(pond_id, payload.model_dump(exclude_unset=True, exclude_none=True))
+    connection = resolve_connection(payload.connection, store, pond_id) if payload.connection else None
+    data = {**pond, **payload.model_dump(exclude={"connection"}, exclude_unset=True, exclude_none=True)}
+    return store.save_pond(data, connection, pond_id)
 
 
 @app.delete(f"{API}/ponds/{{pond_id}}", status_code=204)
@@ -134,17 +139,12 @@ def get_connection(pond_id: str, store: db.Store = Depends(require_store)):
 
 @app.put(f"{API}/ponds/{{pond_id}}/connection")
 def set_connection(pond_id: str, payload: ThingSpeakConfig, store: db.Store = Depends(require_store)):
-    if not store.get_pond(pond_id):
+    pond = store.get_pond(pond_id)
+    if not pond:
         raise HTTPException(404, "pond not found")
-    previous = store.connection(pond_id)
-    proposed = payload.model_dump()
-    # Changing a channel/mapping after readings exist mixes incompatible sensor
-    # series. Preserve history and ask for a separate pond rather than deleting.
-    if previous and store.latest_reading(pond_id) and (
-        previous["channel_id"] != proposed["channel_id"] or previous["field_map"] != proposed["field_map"]
-    ):
-        raise HTTPException(409, "This pond already has sensor history. Add a separate pond for a different channel or field mapping.")
-    return telemetry.safe_connection(store.save_connection(pond_id, proposed))
+    proposed = resolve_connection(payload, store, pond_id)
+    store.save_pond(pond, proposed, pond_id)
+    return telemetry.safe_connection(proposed)
 
 
 # -------------------------------------------------------------- live state
@@ -174,6 +174,36 @@ async def pond_state(pond_id: str, store: db.Store = Depends(require_store)):
     hours, source = await weather.resolve(pond["latitude"], pond["longitude"], 1)
     w = hours[0]
 
+    cfg = _config_from_pond(pond)
+    incomplete = reading["quality"] != "ok"
+    stale = telemetry.is_stale(reading)
+    missing = [key for key in telemetry.RANGES if reading.get(key) is None]
+    if missing:
+        reason = "Forecast needs measurements for: " + ", ".join(key.replace("_", " ") for key in missing) + "."
+    elif incomplete:
+        reason = "The latest sensor reading failed validation. Check the sensors and field mapping."
+    elif stale:
+        reason = "Sensor data is too old for a current forecast. Check the pond sensors."
+    else:
+        reason = None
+    base = {
+        "channel_id": (await asyncio.to_thread(store.connection, pond_id))["channel_id"],
+        "pond": pond, "reading": reading, "observed_at": reading["ts"],
+        "telemetry_source": "thingspeak", "telemetry_stale": stale,
+        "forecast_available": reason is None, "forecast_block_reason": reason,
+        "missing_sensors": missing, "transformer_available": False,
+        "weather_source": source,
+        "weather": {"time": w.time, "air_temperature": w.air_temperature,
+                    "wind_speed_ms": w.wind_speed_ms, "solar_radiation": w.solar_radiation,
+                    "relative_humidity": w.relative_humidity, "cloud_cover": w.cloud_cover},
+        "volume_m3": round(cfg.volume_m3, 1), "biomass_kg": round(cfg.biomass_kg, 1),
+        "density_kg_m3": round(cfg.density_kg_m3, 3),
+    }
+    if incomplete:
+        return {**base, "depth_profile_source": "unavailable", "layers": [], "risk": "unknown",
+                "saturation": None, "stratification": None, "min_do": None,
+                "thresholds": species_thresholds(pond["species"])}
+
     solar_norm = min(1.0, max(0.0, w.solar_radiation / 850.0))
     strength = stratification_strength(
         solar_norm, w.wind_speed_ms, pond["depth_m"], reading["turbidity"], False
@@ -194,6 +224,7 @@ async def pond_state(pond_id: str, store: db.Store = Depends(require_store)):
     cfg = _config_from_pond(pond)
 
     return {
+        **base,
         "pond": pond,
         "observed_at": reading["ts"],
         "telemetry_source": "thingspeak",
@@ -253,6 +284,8 @@ async def forecast(pond_id: str, payload: ForecastRequest, store: db.Store = Dep
         raise HTTPException(404, "pond not found")
 
     reading = await asyncio.to_thread(telemetry.record, pond, store)
+    if reading["quality"] != "ok":
+        raise HTTPException(409, "Forecast needs valid temperature, pH, dissolved oxygen and calibrated turbidity in NTU. Missing sensors cannot be replaced with estimated readings.")
     if telemetry.is_stale(reading):
         raise HTTPException(409, "Sensor data is too old for a current forecast. Check the pond sensors.")
     hours, source = await weather.resolve(

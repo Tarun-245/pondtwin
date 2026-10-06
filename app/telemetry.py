@@ -56,7 +56,8 @@ def parse_feeds(feeds, field_map, previous=None):
         except (ValueError, KeyError, TypeError, OverflowError):
             skipped += 1
             continue
-        reading = {"ts": stamp.isoformat(), "entry_id": entry_id, "source": "thingspeak"}
+        reading = {"ts": stamp.isoformat(), "entry_id": entry_id, "source": "thingspeak",
+                   **{key: None for key in RANGES}}
         for key, field in field_map.items():
             try:
                 value = float(feed.get(f"field{field}"))
@@ -109,6 +110,4 @@ def record(pond, store):
         reading = store.latest_reading(pond["id"])
     if not reading:
         raise HTTPException(409, "ThingSpeak has no readings for this pond yet.")
-    if reading["quality"] != "ok":
-        raise HTTPException(409, "The latest sensor reading failed validation. Check the sensors and field mapping.")
     return reading

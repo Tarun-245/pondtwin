@@ -8,6 +8,25 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 Species = Literal["tilapia", "vannamei", "carp", "pangasius", "seabass"]
 
 
+class ThingSpeakConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel_id: int = Field(..., gt=0, le=2_147_483_647)
+    read_api_key: str | None = Field(None, max_length=128, pattern=r"^[A-Za-z0-9]*$")
+    field_map: dict[str, int] | None = None
+
+    @model_validator(mode="after")
+    def check_fields(self):
+        if self.field_map is None:
+            return self
+        allowed = {"water_temperature", "ph", "dissolved_oxygen", "turbidity", "turbidity_voltage"}
+        if not self.field_map or not set(self.field_map) <= allowed:
+            raise ValueError("Map at least one supported water sensor.")
+        values = list(self.field_map.values())
+        if len(set(values)) != len(values) or any(v < 1 or v > 8 for v in values):
+            raise ValueError("Choose different ThingSpeak fields, each from 1 to 8.")
+        return self
+
+
 class PondCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False, str_strip_whitespace=True)
     name: str = Field(..., min_length=1, max_length=80)
@@ -22,6 +41,7 @@ class PondCreate(BaseModel):
     aerator_count: int = Field(1, ge=0, le=20)
     aerator_kw: float = Field(1.5, ge=0, le=50)
     power_cost: float = Field(7.5, ge=0, le=100)
+    connection: ThingSpeakConfig | None = None
 
 
 class PondUpdate(BaseModel):
@@ -38,6 +58,7 @@ class PondUpdate(BaseModel):
     aerator_count: int | None = Field(None, ge=0, le=20)
     aerator_kw: float | None = Field(None, ge=0, le=50)
     power_cost: float | None = Field(None, ge=0, le=100)
+    connection: ThingSpeakConfig | None = None
 
 
 class ForecastRequest(BaseModel):
@@ -51,23 +72,6 @@ class ForecastRequest(BaseModel):
     def check_schedule(self):
         if self.aerator_schedule is not None and len(self.aerator_schedule) != self.horizon_hours:
             raise ValueError("Aerator schedule must contain one value per forecast hour.")
-        return self
-
-
-class ThingSpeakConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    channel_id: int = Field(..., gt=0, le=2_147_483_647)
-    read_api_key: str | None = Field(None, max_length=128, pattern=r"^[A-Za-z0-9]*$")
-    field_map: dict[str, int]
-
-    @model_validator(mode="after")
-    def check_fields(self):
-        required = {"water_temperature", "ph", "dissolved_oxygen", "turbidity"}
-        if set(self.field_map) != required:
-            raise ValueError("Map temperature, pH, dissolved oxygen, and turbidity.")
-        values = list(self.field_map.values())
-        if len(set(values)) != 4 or any(v < 1 or v > 8 for v in values):
-            raise ValueError("Choose four different ThingSpeak fields, each from 1 to 8.")
         return self
 
 

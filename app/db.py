@@ -60,6 +60,15 @@ class Store:
             raise HTTPException(401 if auth else 403,
                                 "Please sign in again." if auth else "This operation is not allowed.")
         if not res.is_success:
+            if path == "/rest/v1/rpc/save_pond":
+                try:
+                    code = res.json().get("code")
+                except (ValueError, AttributeError):
+                    code = None
+                if code == "PT409":
+                    raise HTTPException(409, "This pond already has sensor history. Add a separate pond for a different channel or field mapping.")
+                if code == "PT404":
+                    raise HTTPException(404, "Pond not found.")
             raise HTTPException(503, "Account storage is not ready. Check the database setup.")
         if not res.content:
             return None
@@ -86,8 +95,17 @@ class Store:
         return rows[0] if rows else None
 
     def create_pond(self, data):
-        data = {**data, "id": str(uuid4()), "owner_id": self.owner_id}
-        return self.rest("POST", "ponds", data=data, prefer="return=representation")[0]
+        return self.save_pond(data)
+
+    def save_pond(self, data, connection=None, pond_id=None):
+        return self.request("POST", "/rest/v1/rpc/save_pond", json={
+            "p_pond": data, "p_connection": connection,
+            "p_pond_id": checked_id(pond_id) if pond_id else None})
+
+    def provisioned_device(self, channel_id):
+        rows = self.rest("GET", "provisioned_devices", params={
+            "channel_id": f"eq.{channel_id}", "owner_id": f"eq.{self.owner_id}", "limit": "1"})
+        return rows[0] if rows else None
 
     def update_pond(self, pond_id, data):
         if not data:

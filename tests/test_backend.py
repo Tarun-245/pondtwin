@@ -31,10 +31,17 @@ def backend(monkeypatch):
             "width_m": 25.0, "depth_m": 2.0, "species": "tilapia", "stock_count": 2000,
             "avg_weight_g": 120, "aerator_count": 1, "aerator_kw": 1.5,
             "power_cost": 7.5, "latitude": 8.9, "longitude": 76.6}
-    state = {"reading": reading, "pond": pond, "connection": None}
+    state = {"reading": reading, "pond": pond, "connection": None, "device": None,
+             "channel_status": 200,
+             "channel": {"field1": "Dissolved Oxygen (mg/L)", "field2": "Water Temperature (C)",
+                         "field3": "Turbidity (NTU)", "field4": "pH"}}
 
     def upstream(request):
         requests.append(request)
+        if request.url.host == "api.thingspeak.com":
+            assert request.method == "GET"
+            channel = {"id": int(request.url.path.split("/")[2]), **state["channel"]}
+            return httpx.Response(state["channel_status"], json={"channel": channel, "feeds": []})
         if request.url.path == "/auth/v1/user":
             token = request.headers.get("authorization")
             if token == "Bearer valid":
@@ -44,6 +51,14 @@ def backend(monkeypatch):
             return httpx.Response(401, json={"message": "invalid token"})
         assert request.headers["authorization"] == "Bearer valid"
         assert request.headers["apikey"] == "sb_publishable_test"
+        if request.url.path == "/rest/v1/provisioned_devices":
+            assert request.url.params["owner_id"] == f"eq.{OWNER}"
+            device = state["device"]
+            matches = device and request.url.params["channel_id"] == f"eq.{device['channel_id']}"
+            return httpx.Response(200, json=[device] if matches else [])
+        if request.url.path == "/rest/v1/rpc/save_pond":
+            data = json.loads(request.content)
+            return httpx.Response(200, json={**data["p_pond"], "id": data["p_pond_id"] or str(uuid4()), "owner_id": OWNER})
         if request.url.path == "/rest/v1/ponds":
             if request.method == "GET":
                 assert request.url.params["owner_id"] == f"eq.{OWNER}"

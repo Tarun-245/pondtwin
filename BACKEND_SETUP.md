@@ -1,6 +1,7 @@
 # PondTwin backend setup
 
-Prepared against GitHub main commit `8a645708bbeb1368bb627f7f7a8975c48c1101e4`.
+Account backend originally prepared against `8a645708bbeb1368bb627f7f7a8975c48c1101e4`.
+Channel ID onboarding builds on deployed main `13994ddd0cb0b274e5c83823dbc23bd0c3637dfc`.
 Deployment uses the existing Free Render service and the owner's Free Supabase
 project `fhhdyhvdejhjeanckblt` (final year Project, Smart Fish Tank organization).
 The database, production authentication URLs and Render environment variables
@@ -13,7 +14,10 @@ were configured on 2026-10-05. GitHub main triggers Render deployments.
 - Persistent ponds, readings and forecasts in Supabase Postgres.
 - Verified user authentication on private API endpoints.
 - RLS ownership checks and composite foreign keys for each pond's records.
-- Configurable ThingSpeak channel, Read API Key and four explicit field mappings.
+- Channel ID onboarding for devices assigned to a farmer; private keys and mappings are supplied once by the provider.
+- Automatic recognition of supported ThingSpeak field labels, with optional manual mapping.
+- Channel validation before writes and transactional pond/connection saves.
+- Partial sensor readings remain visible; missing/invalid readings block forecasts. Raw turbidity voltage is kept separate from NTU.
 - Original UTC timestamps, quality checks and duplicate-resistant imports.
 - Old sensor-data status; current forecasts reject stale readings.
 - Existing physics forecasts and experiments. Transformer availability is explicitly false until its actual files are supplied.
@@ -23,8 +27,8 @@ were configured on 2026-10-05. GitHub main triggers Render deployments.
 1. Use the intended owner's Supabase account. Reuse an existing Free organization if one exists.
 2. Create one Free project named `pondtwin`, using standard Postgres in a suitable nearby region.
 3. The owner completes any new database-password entry and saves it securely.
-4. For a new database, run `supabase/setup.sql` once. The deployed project already has recorded migrations `20261005194648_initial_pondtwin_auth_and_telemetry` and `index_pond_owner_relationships`; do not rerun initial setup there.
-5. Verify that all four tables have RLS enabled and `anon` has no table grants.
+4. For a new database, run `supabase/setup.sql`, then `supabase/device_setup.sql` once. The deployed project already has recorded migrations `20261005194648_initial_pondtwin_auth_and_telemetry` , `index_pond_owner_relationships`, `provisioned_devices_and_atomic_pond_save` and `partial_sensor_devices`; do not rerun initial setup there.
+5. Verify that all five tables have RLS enabled and `anon` has no table grants.
 6. Set Authentication Site URL to the real web origin and allow `https://pondtwin.onrender.com/login` as a redirect. Allow local login URLs only for development.
 7. Keep email confirmation enabled. Configure custom SMTP before inviting farmer addresses outside the project team; the default service only sends to team addresses.
 8. Copy the project URL and **publishable** key. The application does not need a service-role key or database password.
@@ -78,19 +82,49 @@ Do not attach a paid disk or create Render Postgres.
 
 ## Real pond connection
 
-After signup/sign-in, add a pond. Edit pond accepts the Channel ID and four
-distinct ThingSpeak field numbers from 1–8. The mapping starts blank because
-the actual ESP32/ThingSpeak configuration has not been supplied.
-Use a **Read API Key**, rather than a Write API Key, for private channels.
+After signup/sign-in, farmers enter the Channel ID supplied with their device.
+The MCU sends readings to ThingSpeak using its **Write API Key**. The provider
+registers the channel's **Read API Key** and sensor mapping in
+`public.provisioned_devices`, assigned to the intended farmer's Auth user ID.
+Only that farmer can read the device configuration through RLS; farmers cannot
+insert, edit or claim entries. A Channel ID alone cannot claim another farmer's
+private device. PondTwin's API never returns the read key.
 
-The key is protected by the farmer's ownership policy and is not returned by
-PondTwin's API. Blank on edit preserves it; the explicit checkbox clears it.
-Ingestion is read-only and sends no actuator commands.
+Register a device only after the owner confirms the exact channel and farmer.
+Use the Supabase SQL editor/management connector, parameterized values, and the
+farmer's existing account. Do not put keys, account passwords, or actual device
+rows in git. No service-role key is needed by the app.
 
-Compare all four parameters and units against ThingSpeak, including the
-original observed timestamp. Repeated refreshes must not duplicate entry IDs.
-To change a channel or field mapping after history exists, add a separate pond
-so distinct sensor series are not mixed.
+Readable unassigned channels can also connect: recognized metadata labels supply
+the mapping. Unknown/ambiguous labels require Advanced sensor setup. Manual setup
+accepts distinct field numbers 1–8 for the installed sensors. Blank Read API Key
+on edit preserves the same channel's saved key; the explicit checkbox clears it.
+A different channel never inherits the previous channel's key.
+
+Before any save, PondTwin verifies the channel through the read-only feeds API.
+The pond and connection are written together with a SECURITY INVOKER transaction,
+using the farmer's JWT and RLS. Failed connections/edits leave both unchanged.
+The form displays errors inline. Leaving Channel ID blank saves the pond for
+later connection. Ingestion sends no actuator commands.
+
+On 2026-10-06 the owner's ThingSpeak account showed these private channels:
+
+| Channel | Sensor mapping | Limits |
+| --- | --- | --- |
+| 2966968 — Fish Farming Application | temperature 1, turbidity NTU 2, pH 3 | No dissolved oxygen field |
+| 3148055 — Fish Farming 2 | temperature 1, turbidity NTU 2, pH 3 | No dissolved oxygen field |
+| 3449300 — Simulation Driven Aquaculture | temperature 1, pH 2, turbidity voltage 3 | No DO or calibrated NTU field |
+
+No device assignment has been saved yet: automatic review requires explicit
+approval of the private channel and recipient. Once assigned, a farmer needs
+only its Channel ID. The latest visible update for channel 3449300 was August
+2026, so the MCU must resume uploads for current data. Voltage needs a real
+calibration before it can be converted to NTU. Missing values remain null and
+oxygen risk/depth profiles are unavailable until valid readings exist.
+
+Compare values, units and original UTC timestamps with ThingSpeak. Repeated
+refreshes must not duplicate entry IDs. To change a channel or field mapping
+once history exists, add a separate pond; the transaction also enforces this.
 
 Imports run on demand. ThingSpeak retains ESP32 readings while Render sleeps,
 but only the configured import window is recovered per sync (default 2,000,
@@ -112,14 +146,18 @@ Local backend integration and physics tests use mocked upstream APIs.
 Dashboard/authentication scripts passed JavaScript syntax checks.
 The vendored Supabase SDK is pinned to 2.57.4, with a SHA-256 manifest and license.
 
-49 local backend and physics tests passed. Live database checks confirmed RLS
-and grants on all four tables, isolated two simulated farmer roles, and rejected
+65 local backend, device and physics tests passed. Live database checks confirmed RLS
+and grants on all five tables, isolated two simulated farmer roles, and rejected
 forged ownership, ownership reassignment, cross-pond attachments and anonymous
-access. All verification rows were rolled back. The security advisor found no
-issues; missing foreign-key indexes were added after the performance review.
+access. All verification rows were rolled back. Atomic create/edit rollback and sensor-history protection were verified in the
+live database. Missing foreign-key indexes were added. The security advisor
+reported the existing leaked-password-protection setting; no RLS or function
+security warnings were found. Performance notices are unused indexes in the
+new database.
 
-Real farmer signup and a real ThingSpeak channel still need owner-supplied
-credentials/configuration. Email confirmation stays enabled; external farmer
+A real farmer has signed up and the real ThingSpeak field configurations were
+inspected. Private device assignment and a complete live round trip remain
+pending explicit channel/recipient approval. Email confirmation stays enabled; external farmer
 email delivery requires custom SMTP. Transformer inference remains unavailable
 until the actual trained model and preprocessing files are supplied.
 

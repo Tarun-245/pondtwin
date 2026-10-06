@@ -165,8 +165,8 @@ Read these before showing it to anyone who will ask hard questions.
 - **No ammonia, nitrite or alkalinity chemistry.** pH moves with net production
   buffered by alkalinity, which is a sketch of the carbonate system, not the
   system itself. Unionised ammonia is a real cause of loss and is not modelled.
-- **Live verification is pending setup.** Apply the defined RLS schema and
-  test with two real farmer accounts before publishing.
+- **Device connection.** Preassigned private ThingSpeak devices connect by Channel ID. Other readable channels use supported field labels or optional manual mapping. Available readings are displayed; missing sensors and raw voltage cannot drive oxygen forecasts.
+- **Live device assignment is pending approval.** Farmer authentication, RLS and transactional persistence are deployed. Confirm the private channel and intended farmer before storing its Read API Key for that account.
 - **No alerting.** A forecast nobody sees at 2 AM is worth nothing.
 
 ---
