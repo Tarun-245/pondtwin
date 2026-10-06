@@ -207,6 +207,23 @@ def test_privileged_key_cannot_leak(monkeypatch):
     assert "sb_secret" not in res.text
 
 
+def test_sandbox_runs_without_live_sensor_readings(backend):
+    client, state, requests = backend
+    state["reading"]["dissolved_oxygen"] = None
+    state["reading"]["quality"] = "missing"
+    response = client.post("/api/v1/experiment", headers={"Authorization": "Bearer valid"},
+                           json={"horizon_hours": 2, "use_live_weather": False,
+                                 "initial": {"dissolved_oxygen": 6.0, "water_temperature": 25.99,
+                                             "ph": 7.44, "turbidity": 40.6}})
+    assert response.status_code == 200
+    result = response.json()
+    assert result["sandbox"] is True
+    assert len(result["results"]) == 2
+    assert all(len(row["layers"]) == 12 for row in result["results"])
+    assert result["initial"]["dissolved_oxygen"] == 6.0
+    assert not any(request.url.path.startswith("/rest/v1/") for request in requests)
+
+
 def test_mapping_is_explicit_and_timestamp_order_preserved():
     stamp = datetime.now(timezone.utc) - timedelta(minutes=1)
     feeds = [{"created_at": stamp.isoformat(), "entry_id": 2, "field1": "6.1",

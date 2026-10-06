@@ -558,6 +558,8 @@ function clearGroup(g){
  * Real length/width/depth drive the scene, so ponds look like themselves.
  */
 function buildPond(length_m, width_m, depth_m, layerCount){
+  layerCount=Number.isInteger(layerCount)&&layerCount>0?layerCount:12;
+  world.visible=true;
   var s = 16 / Math.max(length_m, width_m);      // fit longest side to 16 units
   pond.scale=s; pond.W=width_m*s; pond.L=length_m*s; pond.D=Math.max(0.35, depth_m*s*3.2);
   pond.layerCount=layerCount;
@@ -710,15 +712,18 @@ function buildPond(length_m, width_m, depth_m, layerCount){
  */
 function renderFrame(frame){
   var layers=frame.layers||[];
-  if(layers.length!==pond.layerCount) return;
+  var hasProfile=layers.length>0;
+  if(hasProfile&&layers.length!==pond.layerCount) return;
+  world.visible=true;
 
-  var D=pond.D, n=layers.length, lh=D/n;
-  var siltMix=Math.min(0.62,(frame.turbidity-4)/95);
+  var D=pond.D, n=pond.layerCount, lh=D/n;
+  var hasTurbidity=Number.isFinite(frame.turbidity);
+  var siltMix=hasTurbidity?Math.max(0,Math.min(0.62,(frame.turbidity-4)/95)):0;
 
   var minV=Infinity, minD=0, bestIdx=0, bestV=-1;
   for(var i=0;i<n;i++){
-    var v=layers[i].dissolved_oxygen;
-    var c=doColor(v).lerp(new THREE.Color(0x6E5334),siltMix);
+    var v=hasProfile?layers[i].dissolved_oxygen:null;
+    var c=(hasProfile?doColor(v):new THREE.Color(0x2E8FA8)).lerp(new THREE.Color(0x6E5334),siltMix);
     var y=-(i+0.5)*lh;
 
     var sl=pond.slabs[i];
@@ -730,22 +735,24 @@ function renderFrame(frame){
     wp.scale.y=lh; wp.position.y=y;
     wp.material.color.copy(c).multiplyScalar(0.94);
 
-    if(v<minV){minV=v;minD=layers[i].depth_m;}
-    if(v>bestV){bestV=v;bestIdx=i;}
+    if(hasProfile&&v<minV){minV=v;minD=layers[i].depth_m;}
+    if(hasProfile&&v>bestV){bestV=v;bestIdx=i;}
   }
 
+  pond.silt.visible=hasTurbidity;
   pond.silt.material.opacity=0.05+siltMix*0.55;
   pond.silt.material.color.setHex(frame.turbidity>34?0x9C7A4E:0xBFA07A);
 
   // fish seek the best oxygen they can reach
   var targetY=-(bestIdx+0.5)*lh;
-  var crowd=bestV<4.2;
-  var show=Math.max(0,Math.min(40,frame.stock_shown||14));
+  var crowd=hasProfile&&bestV<4.2;
+  var show=Math.max(0,Math.min(40,frame.stock_shown==null?14:frame.stock_shown));
   for(var q=0;q<pond.fishes.length;q++){
     var f=pond.fishes[q], sw=f.userData.swim;
     f.visible=q<show;
-    sw.tY=Math.max(-D+0.28,Math.min(-0.26,
+    if(hasProfile) sw.tY=Math.max(-D+0.28,Math.min(-0.26,
       targetY+(Math.random()-0.5)*(crowd?0.3:lh*2.0)));
+    else sw.tY=-D*(0.25+0.5*(q+0.5)/pond.fishes.length);
     sw.panic=crowd;
   }
 
@@ -775,7 +782,13 @@ function renderFrame(frame){
   pond.surface.material.color.setHex(night>0.5?0x2A5E78:0x5FC6D8);
   pond.surface.material.opacity=0.32+siltMix*0.28;
 
-  paintBands(layers,minV,minD,bestV,crowd,frame);
+  if(hasProfile) paintBands(layers,minV,minD,bestV,crowd,frame);
+  else {
+    document.getElementById("bands").textContent="";
+    document.getElementById("fishnote").textContent=frame.note||"Pond geometry and fish are illustrative. Oxygen conditions are unavailable until valid sensor readings arrive.";
+    document.getElementById("clockTime").textContent=frame.clock||"--:--";
+    document.getElementById("clockPhase").textContent=frame.phase||"";
+  }
 }
 
 /* ------------------------------------------------------------ animation */
@@ -1177,8 +1190,9 @@ function renderExperimentRail(){
   }).join("");
 
   railBody.innerHTML=
-    '<p class="hint" style="margin-bottom:14px">A copy of '+escapeHtml(app.pond.name)+' as it is right now. '
-  + 'Nothing here is saved and the real pond is untouched.</p>'
+    '<p class="hint" style="margin-bottom:14px">Try changes to '+escapeHtml(app.pond.name)+'. '
+  + 'Available sensor values seed these inputs; missing measurements use editable example values. '
+  + 'This simulation can run without live sensors. Nothing here is saved.</p>'
 
   + '<div class="sect"><h2>Pond shape</h2>'
   +   '<div class="pair">'
@@ -1251,7 +1265,10 @@ function renderExperimentRail(){
   });
   document.getElementById("expRun").addEventListener("click",runExperiment);
   document.getElementById("expReset").addEventListener("click",function(){
-    seedExperiment(); renderRail(); toast("Sandbox reset to the live pond state.");
+    seedExperiment(); app.experiment=null; app.playing=false;
+    document.getElementById("timeline").classList.add("hidden");
+    buildPond(app.exp.length_m,app.exp.width_m,app.exp.depth_m,12);
+    paintSandboxPreview(); renderRail(); toast("Sandbox inputs reset. Missing measurements use editable example values.");
   });
 
   if(app.experiment) paintExperimentOut(app.experiment);
@@ -1445,7 +1462,7 @@ Array.prototype.forEach.call(document.querySelectorAll(".mode"),function(b){
         showHour(1);
       } else {
         tl.classList.add("hidden");
-        paintLive();
+        paintSandboxPreview();
       }
     }
     renderRail();
@@ -1456,37 +1473,53 @@ Array.prototype.forEach.call(document.querySelectorAll(".mode"),function(b){
    LIVE POLLING
    ====================================================================== */
 function paintLive(){
-  var s=app.live; if(!s) return;
-  if(!s.layers.length){world.visible=false;document.getElementById("bands").textContent="";document.getElementById("fishnote").textContent="Oxygen profile needs a dissolved oxygen sensor and valid water readings.";return;}
-  var hd=hourOf(s.weather.time);
+  if(!app.pond) return;
+  var s=app.live, w=s?s.weather:{}, r=s?s.reading:{};
+  var hd=hourOf(w.time);
   lastFrame={
-    layers:s.layers, turbidity:s.reading.turbidity,
-    wind_speed_ms:s.weather.wind_speed_ms, solar_radiation:s.weather.solar_radiation,
-    aerator_on:false, stock_shown:fishCountFor(s.pond.stock_count),
-    hour_of_day:hd, clock:fmtClock(s.weather.time), phase:phaseOf(hd), risk:s.risk
+    layers:s?s.layers:[], turbidity:r.turbidity,
+    wind_speed_ms:w.wind_speed_ms, solar_radiation:w.solar_radiation,
+    aerator_on:false, stock_shown:fishCountFor(app.pond.stock_count),
+    hour_of_day:hd, clock:fmtClock(w.time), phase:phaseOf(hd), risk:s?s.risk:"unknown",
+    note:"Pond geometry and fish are illustrative. Oxygen analysis needs valid dissolved oxygen, temperature, pH and turbidity readings."
   };
+  renderFrame(lastFrame);
+}
+
+function paintSandboxPreview(){
+  var w=app.live?app.live.weather:{}, hd=hourOf(w.time);
+  lastFrame={layers:[],turbidity:app.exp.initial.turbidity,
+    wind_speed_ms:w.wind_speed_ms,solar_radiation:w.solar_radiation,
+    aerator_on:false,stock_shown:fishCountFor(app.exp.stock_count),
+    hour_of_day:hd,clock:fmtClock(w.time),phase:phaseOf(hd),risk:"unknown",
+    note:"Sandbox preview. Run experiment to simulate oxygen conditions using the editable inputs."};
   renderFrame(lastFrame);
 }
 
 async function refreshLive(rebuild){
   if(!app.pond) return;
   var requestedId=app.pond.id;
+  if(rebuild&&app.mode==="now"){
+    buildPond(app.pond.length_m,app.pond.width_m,app.pond.depth_m,12);
+    paintLive();
+  }
   try{
     var s=await api("/ponds/"+requestedId+"/state");
     if(!app.pond || app.pond.id!==requestedId) return;
     app.live=s;
-    if(rebuild&&s.layers.length) buildPond(s.pond.length_m,s.pond.width_m,s.pond.depth_m,s.layers.length);
-    world.visible=!!s.layers.length;
-    document.getElementById("tag").textContent=s.telemetry_stale?"old sensor data":s.layers.length?"ThingSpeak · depth estimated":"ThingSpeak · partial sensors";
-    if(app.mode==="now"){ paintLive(); renderNowRail(); }
+    if(app.mode==="now"){
+      if(rebuild||s.layers.length&&s.layers.length!==pond.layerCount) buildPond(s.pond.length_m,s.pond.width_m,s.pond.depth_m,s.layers.length);
+      document.getElementById("tag").textContent=s.telemetry_stale?"old sensor data":s.layers.length?"ThingSpeak · depth estimated":"ThingSpeak · partial sensors";
+      paintLive(); renderNowRail();
+    }
   }catch(e){
     if(!app.pond || app.pond.id!==requestedId) return;
     app.live=null;
-    world.visible=false;
-    document.getElementById("bands").textContent="";
-    document.getElementById("fishnote").textContent="";
-    document.getElementById("tag").textContent="Waiting for pond readings";
-    if(app.mode==="now") railBody.innerHTML='<p class="hint">'+escapeHtml(e.message)+'</p>';
+    if(app.mode==="now"){
+      paintLive();
+      document.getElementById("tag").textContent="Waiting for pond readings";
+      railBody.innerHTML='<p class="hint">'+escapeHtml(e.message)+'</p>';
+    }
     toast(e.message);
   }
 }
@@ -1501,9 +1534,11 @@ function paintPondList(){
 pondSelect.addEventListener("change",async function(){
   app.pond=app.ponds.filter(function(p){return p.id===this.value;}.bind(this))[0];
   app.forecast=null;app.experiment=null;app.exp=null;app.live=null;
+  app.mode="now";app.playing=false;
+  document.querySelectorAll(".mode").forEach(function(b){b.setAttribute("aria-selected",b.dataset.mode==="now"?"true":"false");});
   document.getElementById("timeline").classList.add("hidden");
   await refreshLive(true);
-  renderRail();
+  if(app.live) renderRail();
 });
 
 var MODAL_FIELDS=[
