@@ -1524,11 +1524,13 @@ var sensorFields=[["water_temperature","Water temperature"],["ph","pH"],
 var modal=document.getElementById("modal"), editingId=null, modalGeneration=0;
 
 async function openModal(currentPond){
-  var generation=++modalGeneration, connection=null;
+  var generation=++modalGeneration, connection=null, devices=[];
   if(currentPond){
     try{ connection=await api("/ponds/"+currentPond.id+"/connection"); }
     catch(error){ toast(error.message); return; }
   }
+  try{ devices=await api("/devices"); }
+  catch(error){toast("Device list unavailable: "+error.message);}
   if(generation!==modalGeneration) return;
   editingId=currentPond?currentPond.id:null;
   document.getElementById("modalTitle").textContent=currentPond?"Edit pond":"Add a pond";
@@ -1546,8 +1548,13 @@ async function openModal(currentPond){
       +'<input type="number" id="m_'+f[0]+'" step="'+f[3]+'" value="'+src[f[0]]+'"></div>';
   });
   html+='</div><div class="sect"><h2>ThingSpeak sensors</h2>'
-    +'<p class="hint">For a device set up by your provider, enter only its Channel ID. Leave it blank to save a pond and connect later.</p>'
-    +'<div class="field"><label for="m_channel">Channel ID</label><input type="number" id="m_channel" min="1" step="1" value="'+(connection?connection.channel_id:"")+'"></div>'
+    +'<p class="hint">For a device set up by your provider, enter only its Channel ID. Leave it blank to save a pond and connect later.</p>';
+  if(devices.length){
+    var chosen=connection?connection.channel_id:devices.length===1?devices[0].channel_id:null;
+    html+='<div class="field"><label for="m_device">Your configured sensor devices</label><select id="m_device"><option value="">Enter a different Channel ID</option>'
+      +devices.map(function(d){return '<option value="'+d.channel_id+'"'+(chosen===d.channel_id?' selected':'')+'>'+escapeHtml(d.label||"Sensor device")+' · '+d.channel_id+'</option>';}).join("")+'</select></div>';
+  }
+  html+='<div class="field"><label for="m_channel">Channel ID</label><input type="number" id="m_channel" min="1" step="1" value="'+(connection?connection.channel_id:devices.length===1?devices[0].channel_id:"")+'"></div>'
     +'<details id="m_advanced"><summary style="cursor:pointer;margin:12px 0">Advanced sensor setup</summary><p class="hint">For channels that have not been set up by your device provider. No ThingSpeak email or password is needed.</p><div class="field"><label for="m_readKey">Read API Key (private channels)</label><input type="password" id="m_readKey" maxlength="128" autocomplete="off" placeholder="'+(connection&&connection.has_read_api_key?"Saved key · leave blank to keep":"Leave blank for a public channel")+'"></div>';
   if(connection&&connection.has_read_api_key){
     html+='<label><input type="checkbox" id="m_clearKey"> Remove the saved Read API Key</label>';
@@ -1562,6 +1569,13 @@ async function openModal(currentPond){
   document.getElementById("modalForm").innerHTML=html;
   modal.classList.add("open");
   document.getElementById("m_name").focus();
+  var deviceSelect=document.getElementById("m_device");
+  if(deviceSelect) deviceSelect.addEventListener("change",function(){
+    document.getElementById("m_channel").value=this.value;
+    document.getElementById("m_readKey").value="";
+    sensorFields.forEach(function(f){document.getElementById("m_field_"+f[0]).value="";});
+    var clear=document.getElementById("m_clearKey");if(clear)clear.checked=false;
+  });
   var del=document.getElementById("m_delete");
   if(del) del.addEventListener("click",async function(){
     if(!window.confirm("Delete this pond and its stored sensor history? This cannot be undone.")) return;

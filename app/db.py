@@ -107,6 +107,11 @@ class Store:
             "channel_id": f"eq.{channel_id}", "owner_id": f"eq.{self.owner_id}", "limit": "1"})
         return rows[0] if rows else None
 
+    def list_devices(self):
+        return self.rest("GET", "provisioned_devices", params={
+            "owner_id": f"eq.{self.owner_id}", "order": "created_at.asc",
+            "select": "channel_id,label,field_map"})
+
     def update_pond(self, pond_id, data):
         if not data:
             return self.get_pond(pond_id)

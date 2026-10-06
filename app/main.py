@@ -95,6 +95,12 @@ def species():
 
 # ------------------------------------------------------------------- ponds
 
+@app.get(f"{API}/devices")
+def list_devices(store: db.Store = Depends(require_store)):
+    return [{k: device.get(k) for k in ("channel_id", "label", "field_map")}
+            for device in store.list_devices()]
+
+
 @app.get(f"{API}/ponds")
 def list_ponds(store: db.Store = Depends(require_store)):
     return store.list_ponds()

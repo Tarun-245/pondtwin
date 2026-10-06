@@ -54,7 +54,8 @@ def backend(monkeypatch):
         if request.url.path == "/rest/v1/provisioned_devices":
             assert request.url.params["owner_id"] == f"eq.{OWNER}"
             device = state["device"]
-            matches = device and request.url.params["channel_id"] == f"eq.{device['channel_id']}"
+            channel_filter = request.url.params.get("channel_id")
+            matches = device and channel_filter in (None, f"eq.{device['channel_id']}")
             return httpx.Response(200, json=[device] if matches else [])
         if request.url.path == "/rest/v1/rpc/save_pond":
             data = json.loads(request.content)
@@ -93,6 +94,7 @@ def backend(monkeypatch):
 
 
 @pytest.mark.parametrize("method,path,payload", [
+    ("GET", "/api/v1/devices", None),
     ("GET", "/api/v1/ponds", None),
     ("POST", "/api/v1/ponds", {"name": "pond"}),
     ("GET", f"/api/v1/ponds/{POND}", None),

@@ -166,7 +166,7 @@ Read these before showing it to anyone who will ask hard questions.
   buffered by alkalinity, which is a sketch of the carbonate system, not the
   system itself. Unionised ammonia is a real cause of loss and is not modelled.
 - **Device connection.** Preassigned private ThingSpeak devices connect by Channel ID. Other readable channels use supported field labels or optional manual mapping. Available readings are displayed; missing sensors and raw voltage cannot drive oxygen forecasts.
-- **Live device assignment is pending approval.** Farmer authentication, RLS and transactional persistence are deployed. Confirm the private channel and intended farmer before storing its Read API Key for that account.
+- **Farmer setup is deployed.** Farmer authentication, RLS and transactional persistence are enabled. Owner-approved devices appear automatically in the pond form; other private devices require their own approved assignment. Actuator-only updates do not hide water readings.
 - **No alerting.** A forecast nobody sees at 2 AM is worth nothing.
 
 ---

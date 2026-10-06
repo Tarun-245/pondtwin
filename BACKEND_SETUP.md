@@ -19,6 +19,7 @@ were configured on 2026-10-05. GitHub main triggers Render deployments.
 - Channel validation before writes and transactional pond/connection saves.
 - Partial sensor readings remain visible; missing/invalid readings block forecasts. Raw turbidity voltage is kept separate from NTU.
 - Original UTC timestamps, quality checks and duplicate-resistant imports.
+- Actuator-only feed entries are skipped so they do not hide water observations.
 - Old sensor-data status; current forecasts reject stale readings.
 - Existing physics forecasts and experiments. Transformer availability is explicitly false until its actual files are supplied.
 
@@ -115,10 +116,12 @@ On 2026-10-06 the owner's ThingSpeak account showed these private channels:
 | 3148055 — Fish Farming 2 | temperature 1, turbidity NTU 2, pH 3 | No dissolved oxygen field |
 | 3449300 — Simulation Driven Aquaculture | temperature 1, pH 2, turbidity voltage 3 | No DO or calibrated NTU field |
 
-No device assignment has been saved yet: automatic review requires explicit
-approval of the private channel and recipient. Once assigned, a farmer needs
-only its Channel ID. The latest visible update for channel 3449300 was August
-2026, so the MCU must resume uploads for current data. Voltage needs a real
+The owner-approved channel 2966968 was assigned to the confirmed farmer account
+on 2026-10-06. Its Read API Key and field mapping are stored only in Supabase;
+other farmers cannot see or claim it. The farmer needs only its Channel ID.
+Configured devices appear automatically in the pond form. Other private
+channels still require their own owner-approved assignment. The MCU must
+resume sensor uploads before any channel can show current measurements. Voltage needs a real
 calibration before it can be converted to NTU. Missing values remain null and
 oxygen risk/depth profiles are unavailable until valid readings exist.
 
@@ -146,7 +149,7 @@ Local backend integration and physics tests use mocked upstream APIs.
 Dashboard/authentication scripts passed JavaScript syntax checks.
 The vendored Supabase SDK is pinned to 2.57.4, with a SHA-256 manifest and license.
 
-65 local backend, device and physics tests passed. Live database checks confirmed RLS
+69 local backend, device and physics tests passed. Live database checks confirmed RLS
 and grants on all five tables, isolated two simulated farmer roles, and rejected
 forged ownership, ownership reassignment, cross-pond attachments and anonymous
 access. All verification rows were rolled back. Atomic create/edit rollback and sensor-history protection were verified in the
@@ -156,8 +159,10 @@ security warnings were found. Performance notices are unused indexes in the
 new database.
 
 A real farmer has signed up and the real ThingSpeak field configurations were
-inspected. Private device assignment and a complete live round trip remain
-pending explicit channel/recipient approval. Email confirmation stays enabled; external farmer
+inspected. The approved device was registered, its real ThingSpeak feeds were read and
+parsed, and atomic saving with that actual device was verified as the farmer
+role in a rollback transaction. The cloud browser sign-in check returned
+Failed to fetch; user-browser authentication succeeded in production logs. Email confirmation stays enabled; external farmer
 email delivery requires custom SMTP. Transformer inference remains unavailable
 until the actual trained model and preprocessing files are supplied.
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import httpx
 import pytest
@@ -74,3 +74,27 @@ def test_missing_sensor_value_is_retained_for_display_without_substitution(monke
     assert reading["quality"] == "missing"
     assert store.rows[5]["quality"] == "missing"
     assert store.rows[5]["water_temperature"] is None
+
+
+def test_actuator_only_entry_cannot_hide_last_water_measurements(monkeypatch):
+    now = datetime.now(timezone.utc)
+    mock_client(monkeypatch, lambda request: httpx.Response(200, json={"feeds": [
+        {"created_at": (now-timedelta(minutes=1)).isoformat(), "entry_id": 5,
+         "field1": "6", "field2": "28", "field3": "20", "field4": "7.5"},
+        {"created_at": now.isoformat(), "entry_id": 6, "field8": "1"}]}))
+    store = MemoryStore()
+    reading = telemetry.record({"id": "pond"}, store)
+    assert reading["entry_id"] == 5
+    assert reading["water_temperature"] == 28
+    assert reading["ts"] == (now-timedelta(minutes=1)).isoformat()
+    assert 6 not in store.rows
+
+
+def test_actuator_only_channel_stays_waiting_for_sensor_measurements(monkeypatch):
+    mock_client(monkeypatch, lambda request: httpx.Response(200, json={"feeds": [
+        {"created_at": datetime.now(timezone.utc).isoformat(), "entry_id": 6, "field8": "1"}]}))
+    store = MemoryStore()
+    with pytest.raises(HTTPException) as exc:
+        telemetry.record({"id": "pond"}, store)
+    assert exc.value.status_code == 409
+    assert store.rows == {}

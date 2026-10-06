@@ -12,6 +12,18 @@ from tests.test_backend import backend, FIELD_MAP, OWNER, POND
 AUTH = {"Authorization": "Bearer valid"}
 
 
+def test_assigned_device_list_never_exposes_read_key(backend):
+    client, state, requests = backend
+    state["device"] = {"channel_id": 123, "owner_id": OWNER, "label": "Farm sensor",
+                       "read_api_key": "PRIVATEDEVICEKEY", "field_map": FIELD_MAP}
+    result = client.get("/api/v1/devices", headers=AUTH)
+    assert result.status_code == 200
+    assert result.json() == [{"channel_id": 123, "label": "Farm sensor", "field_map": FIELD_MAP}]
+    assert "PRIVATEDEVICEKEY" not in result.text
+    query = next(r for r in requests if r.url.path == "/rest/v1/provisioned_devices")
+    assert query.url.params["select"] == "channel_id,label,field_map"
+
+
 def test_channel_id_alone_uses_labels_and_one_atomic_write(backend):
     client, _, requests = backend
     result = client.post("/api/v1/ponds", headers=AUTH,

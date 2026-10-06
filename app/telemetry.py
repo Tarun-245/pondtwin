@@ -48,6 +48,12 @@ def parse_feeds(feeds, field_map, previous=None):
     readings, skipped = [], 0
     now = datetime.now(timezone.utc)
     for feed in feeds:
+        # ThingSpeak also receives actuator-only updates. Their empty water
+        # fields must not replace an actual sensor observation.
+        if not any(feed.get(f"field{field}") is not None and str(feed[f"field{field}"]).strip()
+                   for field in field_map.values()):
+            skipped += 1
+            continue
         try:
             stamp = parse_time(feed["created_at"])
             entry_id = int(feed["entry_id"])
