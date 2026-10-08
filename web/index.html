@@ -365,14 +365,23 @@ var RISK_COLOR = { safe:"#3FD8A8", warning:"#E9C46A", critical:"#D7466B", lethal
    ====================================================================== */
 var stage = document.getElementById("stage");
 var renderer = null;
+var fallbackCanvas = null, fallbackContext = null;
 try {
   renderer = new THREE.WebGLRenderer({ antialias:true });
 } catch (error) {
+  fallbackCanvas = document.createElement("canvas");
+  fallbackCanvas.id = "pondCanvas";
+  fallbackCanvas.setAttribute("role", "img");
+  fallbackCanvas.setAttribute("aria-label", "Interactive pond view with fish and estimated water layers");
+  fallbackCanvas.style.touchAction = "none";
+  fallbackContext = fallbackCanvas.getContext("2d");
+  stage.appendChild(fallbackCanvas);
   var viewerNote = document.createElement("p");
+  viewerNote.id = "viewerMode";
   viewerNote.className = "hint";
   viewerNote.setAttribute("role", "status");
-  viewerNote.textContent = "3D view unavailable in this browser. Your ponds and sensor data are still available. Enable WebGL to see the digital twin.";
-  viewerNote.style.cssText = "position:absolute;top:90px;left:24px;right:24px;max-width:440px;z-index:2";
+  viewerNote.textContent = fallbackContext ? "Lightweight pond view" : "Pond graphics are unavailable in this browser. Sensor readings and predictions are still available.";
+  viewerNote.style.cssText = "position:absolute;top:90px;left:20px;right:24px;max-width:440px;z-index:2;pointer-events:none";
   stage.appendChild(viewerNote);
 }
 if (renderer) {
@@ -398,7 +407,8 @@ function placeCamera(){
 placeCamera();
 
 var drag=null;
-var cv = renderer ? renderer.domElement : document.createElement("canvas");
+var cv = renderer ? renderer.domElement : fallbackCanvas;
+if(cv) {
 cv.addEventListener("pointerdown",function(e){drag={x:e.clientX,y:e.clientY};cv.setPointerCapture(e.pointerId);});
 cv.addEventListener("pointermove",function(e){
   if(!drag) return;
@@ -412,6 +422,7 @@ cv.addEventListener("wheel",function(e){
   orbit.r = Math.max(8, Math.min(60, orbit.r + e.deltaY*0.018));
   placeCamera();
 },{passive:false});
+}
 
 var hemi = new THREE.HemisphereLight(0x9FD8E8, 0x2A1C14, 0.5); scene.add(hemi);
 var sun  = new THREE.DirectionalLight(0xFFF0D8, 1.0); sun.position.set(10,16,7); scene.add(sun);
@@ -796,6 +807,77 @@ var clock=new THREE.Clock();
 var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 var lastFrame=null;
 
+// Project the same pond dimensions, layers and fish through the Three camera
+// when the browser cannot provide a WebGL context. No new readings are created.
+function drawFallbackPond(t){
+  if(!fallbackContext) return;
+  var w=stage.clientWidth, h=stage.clientHeight;
+  if(!w||!h) return;
+  var ratio=Math.min(window.devicePixelRatio||1,2);
+  if(fallbackCanvas.width!==Math.round(w*ratio)||fallbackCanvas.height!==Math.round(h*ratio)){
+    fallbackCanvas.width=Math.round(w*ratio);fallbackCanvas.height=Math.round(h*ratio);
+  }
+  var ctx=fallbackContext;
+  ctx.setTransform(ratio,0,0,ratio,0,0);
+  var daylight=lastFrame&&(lastFrame.solar_radiation||0)>80;
+  var sky=ctx.createLinearGradient(0,0,0,h);
+  sky.addColorStop(0,daylight?"#173543":"#0a1422");sky.addColorStop(1,"#081419");
+  ctx.fillStyle=sky;ctx.fillRect(0,0,w,h);
+  if(!world.visible||!pond.slabs.length) return;
+  camera.updateMatrixWorld();
+  function point(x,y,z){
+    var v=new THREE.Vector3(x,y,z), distance=v.distanceToSquared(camera.position);
+    v.project(camera);
+    return {x:(v.x+1)*w/2,y:(1-v.y)*h/2,z:v.z,distance:distance};
+  }
+  var shapes=[], W=pond.W/2,L=pond.L/2,D=pond.D;
+  function face(vertices,color,alpha){
+    var points=vertices.map(function(v){return point(v[0],v[1],v[2]);});
+    if(points.some(function(p){return !Number.isFinite(p.x)||!Number.isFinite(p.y)||p.z<-1||p.z>1;})) return;
+    shapes.push({points:points,color:color,alpha:alpha,distance:points.reduce(function(n,p){return n+p.distance;},0)/points.length});
+  }
+  function flat(x0,x1,z0,z1,y,color,alpha){face([[x0,y,z0],[x1,y,z0],[x1,y,z1],[x0,y,z1]],color,alpha);}
+  flat(-W,W,-L,L,-D,"#513d30",1);
+  flat(-W-0.7,-W,-L-0.7,L+0.7,0.04,"#456546",1);
+  flat(W,W+0.7,-L-0.7,L+0.7,0.04,"#456546",1);
+  flat(-W,W,-L-0.7,-L,0.04,"#507044",1);
+  flat(-W,W,L,L+0.7,0.04,"#507044",1);
+  for(var i=0;i<pond.slabs.length;i++){
+    var top=-i*D/pond.layerCount,bottom=-(i+1)*D/pond.layerCount;
+    var color="#"+pond.slabs[i].material.color.getHexString();
+    face([[-W,top,-L],[W,top,-L],[W,bottom,-L],[-W,bottom,-L]],color,0.48);
+    face([[-W,top,L],[W,top,L],[W,bottom,L],[-W,bottom,L]],color,0.48);
+    face([[-W,top,-L],[-W,top,L],[-W,bottom,L],[-W,bottom,-L]],color,0.48);
+    face([[W,top,-L],[W,top,L],[W,bottom,L],[W,bottom,-L]],color,0.48);
+  }
+  flat(-W,W,-L,L,0,"#"+pond.surface.material.color.getHexString(),0.24);
+  pond.fishes.forEach(function(f){
+    if(!f.visible) return;
+    var p=point(f.position.x,f.position.y,f.position.z);
+    if(p.z<-1||p.z>1) return;
+    var sw=f.userData.swim, nose=point(f.position.x+Math.cos(sw.ang)*0.4,f.position.y,f.position.z+Math.sin(sw.ang)*0.4);
+    shapes.push({fish:true,x:p.x,y:p.y,size:Math.max(2,Math.min(10,110/Math.sqrt(p.distance))),angle:Math.atan2(nose.y-p.y,nose.x-p.x),distance:p.distance});
+  });
+  shapes.sort(function(a,b){return b.distance-a.distance;});
+  shapes.forEach(function(s){
+    ctx.save();
+    if(s.fish){
+      ctx.translate(s.x,s.y);ctx.rotate(s.angle);ctx.fillStyle="#e7ba76";
+      ctx.beginPath();ctx.ellipse(0,0,s.size,s.size*0.38,0,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.moveTo(-s.size*0.7,0);ctx.lineTo(-s.size*1.5,-s.size*0.45);ctx.lineTo(-s.size*1.5,s.size*0.45);ctx.closePath();ctx.fill();
+    }else{
+      ctx.globalAlpha=s.alpha;ctx.fillStyle=s.color;ctx.strokeStyle="rgba(162,214,218,0.25)";ctx.lineWidth=0.7;
+      ctx.beginPath();s.points.forEach(function(p,index){if(index)ctx.lineTo(p.x,p.y);else ctx.moveTo(p.x,p.y);});ctx.closePath();ctx.fill();ctx.stroke();
+    }
+    ctx.restore();
+  });
+  if(lastFrame&&lastFrame.aerator_on){
+    var aerator=point(0,0,pond.L*0.18);
+    ctx.strokeStyle="#bce7ec";ctx.lineWidth=1.3;
+    for(var bubble=0;bubble<3;bubble++){ctx.beginPath();ctx.ellipse(aerator.x,aerator.y,8+(t*8+bubble*12)%35,3+(t*3+bubble*4)%12,0,0,Math.PI*2);ctx.stroke();}
+  }
+}
+
 function tick(){
   requestAnimationFrame(tick);
   var dt=Math.min(0.05,clock.getDelta()), t=clock.elapsedTime;
@@ -811,7 +893,7 @@ function tick(){
     }
   }
 
-  if(!renderer) return;
+  if(!renderer&&!fallbackContext) return;
 
   if(pond.surfGeo && !reduce){
     var pos=pond.surfGeo.attributes.position.array;
@@ -916,7 +998,8 @@ function tick(){
     pond.siltGeo.attributes.position.needsUpdate=true;
   }
 
-  renderer.render(scene,camera);
+  if(renderer) renderer.render(scene,camera);
+  else drawFallbackPond(t);
 }
 
 window.addEventListener("resize",function(){
@@ -952,12 +1035,12 @@ function paintBands(layers,minV,minD,bestV,crowd,frame){
 
 function hourOf(iso){
   if(!iso) return null;
-  var m=String(iso).match(/T(\d{2}):(\d{2})/);
-  return m?parseInt(m[1],10)+parseInt(m[2],10)/60:null;
+  var date=new Date(iso);
+  return Number.isFinite(date.getTime())?date.getHours()+date.getMinutes()/60:null;
 }
 function fmtClock(iso){
-  var m=String(iso||"").match(/T(\d{2}):(\d{2})/);
-  return m?m[1]+":"+m[2]:"--:--";
+  var date=new Date(iso||"");
+  return Number.isFinite(date.getTime())?String(date.getHours()).padStart(2,"0")+":"+String(date.getMinutes()).padStart(2,"0"):"--:--";
 }
 function phaseOf(h){
   if(h==null) return "";
@@ -1101,11 +1184,13 @@ function renderForecastRail(){
   document.getElementById("fcEngine").addEventListener("change",function(){
     forecastOpts.engine=this.value; app.forecast=null;app.playing=false;
     document.getElementById("timeline").classList.add("hidden");
+    document.getElementById("tag").textContent="prediction";
     paintLive();renderForecastRail();
   });
   if(forecastOpts.engine==="transformer") document.getElementById("fcDemo").addEventListener("change",function(){
     forecastOpts.demo=this.checked;app.forecast=null;app.playing=false;
     document.getElementById("timeline").classList.add("hidden");
+    document.getElementById("tag").textContent="prediction";
     paintLive();renderForecastRail();
   });
   else {
@@ -1488,7 +1573,7 @@ Array.prototype.forEach.call(document.querySelectorAll(".mode"),function(b){
       buildPond(app.pond.length_m,app.pond.width_m,app.pond.depth_m,
                 app.live?app.live.layers.length:12);
       if(app.forecast){
-        setupTimeline(app.forecast,"Lowest oxygen in the column");
+        setupTimeline(app.forecast,app.forecast.engine==="TransformerV1"?'Next 20 minutes · '+(app.forecast.demo?'demo oxygen':'Transformer'):"Lowest oxygen in the column");
         showHour(1);
       } else {
         tl.classList.add("hidden");

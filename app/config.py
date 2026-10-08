@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     app_name: str = "Aquaculture Pond Digital Twin"
-    version: str = "2.3.0"
+    version: str = "2.3.1"
 
     # Storage
     supabase_url: str = ""
