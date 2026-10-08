@@ -173,13 +173,31 @@ Read these before showing it to anyone who will ask hard questions.
 
 ## Transformer integration
 
-The trained model is absent from the supplied ZIP and repository. The existing
-physics forecasts remain explicitly labelled, and the API reports that the
-Transformer is unavailable.
+TransformerV1 is deployed with the supplied epoch-48 checkpoint. It consumes
+12 samples at 20-minute intervals in the order temperature, pH, dissolved
+oxygen and turbidity. The fitted training StandardScaler is preserved and
+outputs are inverse-scaled to original units. Its trained horizon is one step,
+20 minutes; longer forecasts and aeration planning use the separate physics
+engine. This model has no aerator or feeding inputs.
 
-Integration requires the checkpoint, model class/config, saved scaler,
-exact feature order, input history length, sampling interval and forecast
-horizon used during training. The parameters are temperature, pH, dissolved
-oxygen and turbidity. Use original timestamps and the exact training
-preprocessing. Do not guess the sampling window or label physics output as a
-Transformer prediction.
+In Forecast, choose **Transformer · next 20 minutes** and run the prediction.
+The 3D depth profile is a physics estimate of the predicted water state.
+**Demo: generate dissolved oxygen** is initially enabled for the project demo.
+It creates an ephemeral oxygen history and uses available water sensor values.
+If a full sensor window is unavailable, the demo is seeded from available
+snapshots; if readings are old, it is labeled a historical replay with its
+original observation time. Demo values and forecasts are never inserted into
+the readings or forecasts tables and are never sent to ThingSpeak. Uncheck
+demo for live measured-data inference, which requires all four valid sensors,
+recent data and a full history window. Farmer authentication and pond ownership
+checks apply to both modes.
+
+The free Render service runs unchanged float32 tensors in a NumPy inference
+implementation. Export parity against the exact notebook PyTorch architecture
+was checked on 49 windows (maximum scaled error 1.32e-6). The model/scaler
+metadata is in `models/transformer_v1.json`; `/api/v1/model` reports the active
+checkpoint hash and trained horizon. To replace the model, use
+`python scripts/export_transformer.py /path/to/checkpoint.pt` in an environment
+with PyTorch 2.11.0 and NumPy 2.2.6, run the tests, then redeploy. A new scaler,
+architecture or feature order requires updating the exporter and inference
+code. Training test scores do not establish accuracy on a new farmer's pond.

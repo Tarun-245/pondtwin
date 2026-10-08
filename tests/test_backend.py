@@ -224,6 +224,55 @@ def test_sandbox_runs_without_live_sensor_readings(backend):
     assert not any(request.url.path.startswith("/rest/v1/") for request in requests)
 
 
+def test_transformer_demo_runs_with_stale_missing_oxygen_without_database_writes(backend, monkeypatch):
+    client, state, requests = backend
+    state["connection"] = {"channel_id": 123, "field_map": FIELD_MAP,
+                           "synced_at": datetime.now(timezone.utc).isoformat()}
+    state["reading"].update({"ts": "2025-08-16T23:55:00+00:00", "dissolved_oxygen": None,
+                             "quality": "missing", "water_temperature": 25.99, "ph": 7.44, "turbidity": 40.6})
+    async def resolved(lat, lon, hours):
+        return weather.to_hours(weather.synthetic(hours)), "synthetic"
+    monkeypatch.setattr(weather, "resolve", resolved)
+    response = client.post(f"/api/v1/ponds/{POND}/forecast", headers={"Authorization": "Bearer valid"},
+                           json={"engine": "transformer", "demo_oxygen": True})
+    assert response.status_code == 200
+    result = response.json()
+    assert result["engine"] == "TransformerV1"
+    assert result["demo"] and result["historical_replay"] and not result["persisted"]
+    assert result["generated_features"] == ["dissolved_oxygen"]
+    assert result["prediction_horizon_minutes"] == 20
+    assert result["results"][0]["time"] == "2025-08-17T00:15:00+00:00"
+    assert len(result["results"][0]["layers"]) == 12
+    assert state["reading"]["dissolved_oxygen"] is None
+    assert not any(r.method != "GET" for r in requests)
+
+
+def test_transformer_live_prediction_uses_owned_history_and_persists_forecast(backend, monkeypatch):
+    client, state, requests = backend
+    now = datetime.now(timezone.utc)
+    state["connection"] = {"channel_id": 123, "field_map": FIELD_MAP, "synced_at": now.isoformat()}
+    history = [{**state["reading"], "ts": (now-timedelta(minutes=20*(11-i))).isoformat()} for i in range(12)]
+    monkeypatch.setattr(db.Store, "reading_history", lambda self, pond_id, limit: history)
+    async def resolved(lat, lon, hours):
+        return weather.to_hours(weather.synthetic(hours)), "synthetic"
+    monkeypatch.setattr(weather, "resolve", resolved)
+    response = client.post(f"/api/v1/ponds/{POND}/forecast", headers={"Authorization": "Bearer valid"},
+                           json={"engine": "transformer"})
+    assert response.status_code == 200
+    result = response.json()
+    assert not result["demo"] and result["persisted"] and not result["generated_features"]
+    assert result["telemetry_source"] == "thingspeak"
+    assert any(r.url.path == "/rest/v1/forecasts" and r.method == "POST" for r in requests)
+
+
+def test_transformer_demo_requires_signin_and_pond_ownership(backend):
+    client, _, _ = backend
+    payload = {"engine": "transformer", "demo_oxygen": True}
+    assert client.post(f"/api/v1/ponds/{POND}/forecast", json=payload).status_code == 401
+    assert client.post(f"/api/v1/ponds/{OTHER_POND}/forecast", json=payload,
+                       headers={"Authorization": "Bearer valid"}).status_code == 404
+
+
 def test_mapping_is_explicit_and_timestamp_order_preserved():
     stamp = datetime.now(timezone.utc) - timedelta(minutes=1)
     feeds = [{"created_at": stamp.isoformat(), "entry_id": 2, "field1": "6.1",

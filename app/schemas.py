@@ -63,6 +63,8 @@ class PondUpdate(BaseModel):
 
 class ForecastRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    engine: Literal["physics", "transformer"] = "physics"
+    demo_oxygen: bool = False
     horizon_hours: int = Field(12, ge=1, le=48)
     aerator_schedule: list[bool] | None = None
     optimise: bool = False

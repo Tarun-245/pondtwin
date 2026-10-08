@@ -1,0 +1,50 @@
+{
+  "model_name": "TransformerV1",
+  "checkpoint_sha256": "d321c5e46d44bcb0c28f877c02b90d3ca09c8fa2d8ad247b194f5b8983262d0a",
+  "model_config": {
+    "sequence_length": 12,
+    "n_features": 4,
+    "features_in_order": [
+      "temperature",
+      "ph",
+      "dissolved_oxygen",
+      "turbidity"
+    ],
+    "d_model": 64,
+    "nhead": 4,
+    "num_encoder_layers": 2,
+    "dim_feedforward": 128,
+    "dropout": 0.1,
+    "batch_size": 256,
+    "max_epochs": 50,
+    "learning_rate": 0.001,
+    "weight_decay": 1e-05,
+    "early_stopping_patience": 8
+  },
+  "sequence_length": 12,
+  "features_in_order": [
+    "temperature",
+    "ph",
+    "dissolved_oxygen",
+    "turbidity"
+  ],
+  "prediction_horizon_minutes": 20,
+  "nominal_interval_minutes": 20,
+  "best_epoch": 48,
+  "runtime": "numpy_float32",
+  "parity_max_abs_error": 1.3113021850585938e-06,
+  "scaler_mean": [
+    27.576357957001328,
+    6.420086869655486,
+    9.731511414158527,
+    31.81050695264071
+  ],
+  "scaler_scale": [
+    5.060813065737878,
+    0.9732792979545929,
+    4.867075386623464,
+    10.748263445441804
+  ],
+  "scaler_source": "data1/processed/splits/scaler_parameters.json; fitted on training only",
+  "parity_test_windows": 49
+}

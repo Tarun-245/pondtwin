@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, telemetry, weather
+from . import db, telemetry, weather, transformer
 from .auth import require_store
 from .config import BASE_DIR, settings
 from .engine import (
@@ -49,6 +49,8 @@ async def lifespan(app: FastAPI):
     # Free Render services sleep. Sensor history stays in ThingSpeak and is
     # imported when the farmer opens a pond, using their authenticated session.
     # No shared seed pond and no privileged service key/background user scan.
+    transformer.get_model()
+    log.info("TransformerV1 loaded; 12 observations -> next state in 20 minutes")
     yield
 
 
@@ -69,7 +71,12 @@ API = "/api/v1"
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok", "version": settings.version}
+    return {"status": "ok", "version": settings.version, "transformer_available": True}
+
+
+@app.get(f"{API}/model")
+def model_status():
+    return {"available": True, **transformer.status()}
 
 
 @app.get("/readyz")
@@ -197,7 +204,8 @@ async def pond_state(pond_id: str, store: db.Store = Depends(require_store)):
         "pond": pond, "reading": reading, "observed_at": reading["ts"],
         "telemetry_source": "thingspeak", "telemetry_stale": stale,
         "forecast_available": reason is None, "forecast_block_reason": reason,
-        "missing_sensors": missing, "transformer_available": False,
+        "missing_sensors": missing, "transformer_available": True,
+        "transformer_horizon_minutes": 20,
         "weather_source": source,
         "weather": {"time": w.time, "air_temperature": w.air_temperature,
                     "wind_speed_ms": w.wind_speed_ms, "solar_radiation": w.solar_radiation,
@@ -236,7 +244,7 @@ async def pond_state(pond_id: str, store: db.Store = Depends(require_store)):
         "telemetry_source": "thingspeak",
         "telemetry_stale": telemetry.is_stale(reading),
         "depth_profile_source": "physics_estimate",
-        "transformer_available": False,
+        "transformer_available": True,
         "weather_source": source,
         "reading": reading,
         "weather": {
@@ -290,6 +298,26 @@ async def forecast(pond_id: str, payload: ForecastRequest, store: db.Store = Dep
         raise HTTPException(404, "pond not found")
 
     reading = await asyncio.to_thread(telemetry.record, pond, store)
+    if payload.engine == "transformer":
+        if payload.optimise or payload.aerator_schedule or payload.feed_kg_per_day:
+            raise HTTPException(422, "TransformerV1 predicts water state only. Use the physics model to test feeding or aeration schedules.")
+        history = await asyncio.to_thread(store.reading_history, pond_id, 2000)
+        window, history_method = transformer.prepare_window(history, reading, payload.demo_oxygen)
+        try:
+            prediction = await asyncio.to_thread(transformer.get_model().predict,
+                                               [[row[key] for key in transformer.KEYS] for row in window])
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        hours, source = await weather.resolve(pond["latitude"], pond["longitude"], 1)
+        result = _transformer_result(pond, reading, prediction, window, hours[0], source,
+                                     payload.demo_oxygen, history_method)
+        if not payload.demo_oxygen:
+            # Integer hour bucket in the existing table; precise trained horizon
+            # is retained as prediction_horizon_minutes=20 in the payload.
+            await asyncio.to_thread(store.save_forecast, pond_id, 1, result["engine"], result)
+        return result
+    if payload.demo_oxygen:
+        raise HTTPException(422, "Generated oxygen is available in the Transformer demo. Live physics forecasts require measured oxygen.")
     if reading["quality"] != "ok":
         raise HTTPException(409, "Forecast needs valid temperature, pH, dissolved oxygen and calibrated turbidity in NTU. Missing sensors cannot be replaced with estimated readings.")
     if telemetry.is_stale(reading):
@@ -320,6 +348,36 @@ async def forecast(pond_id: str, payload: ForecastRequest, store: db.Store = Dep
     result["transformer_available"] = False
     await asyncio.to_thread(store.save_forecast, pond_id, payload.horizon_hours, result["engine"], result)
     return result
+
+
+def _transformer_result(pond, reading, prediction, window, w, weather_source, demo, history_method):
+    thresholds = species_thresholds(pond["species"])
+    solar = min(1.0, max(0.0, w.solar_radiation / 850))
+    strength = stratification_strength(solar, w.wind_speed_ms, pond["depth_m"], prediction["turbidity"], False)
+    layers = build_profile(prediction["dissolved_oxygen"], strength, pond["depth_m"])
+    lowest = min(layer["dissolved_oxygen"] for layer in layers)
+    risk = next((name for name in ("lethal", "critical", "warning") if lowest < thresholds[name]), "safe")
+    observed = telemetry.parse_time(window[-1]["ts"])
+    result_row = {"minute": 20, "time": (observed + timedelta(minutes=20)).isoformat(),
+                  **prediction, "mean_do": prediction["dissolved_oxygen"],
+                  "surface_do": layers[0]["dissolved_oxygen"], "bottom_do": layers[-1]["dissolved_oxygen"],
+                  "min_do": round(lowest, 2), "layers": layers, "risk": risk,
+                  "wind_speed_ms": w.wind_speed_ms, "solar_radiation": w.solar_radiation,
+                  "aerator_on": False, "stratification": strength}
+    return {"engine": "TransformerV1", "transformer_available": True,
+            "pond_id": pond["id"], "issued_at": datetime.now(timezone.utc).isoformat(),
+            "observed_at": observed.isoformat(), "prediction_horizon_minutes": 20,
+            "horizon_hours": 1 / 3, "sequence_length": 12, "nominal_interval_minutes": 20,
+            "features_in_order": list(transformer.get_model().config["features_in_order"]),
+            "telemetry_source": "demo_with_generated_oxygen" if demo else "thingspeak",
+            "demo": demo, "sandbox": demo, "persisted": not demo,
+            "generated_features": ["dissolved_oxygen"] if demo else [],
+            "historical_replay": demo and telemetry.is_stale(reading), "history_method": history_method,
+            "input_window": window, "initial": {key: window[-1][key] for key in transformer.KEYS},
+            "next_state": prediction, "depth_profile_source": "physics_estimate_from_transformer_state",
+            "weather_source": weather_source, "weather_time": w.time,
+            "species": thresholds["label"], "thresholds": thresholds, "lowest_do": round(lowest, 2),
+            "results": [result_row], "aeration_control_available": False}
 
 
 # -------------------------------------------------------------- experiment

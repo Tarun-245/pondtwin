@@ -1079,33 +1079,69 @@ function stat(k,v){
 }
 
 /* ---------------------------------------------------------- FORECAST */
-var forecastOpts={horizon:12,optimise:false};
+var forecastOpts={engine:"transformer",demo:true,horizon:12,optimise:false};
 
 function renderForecastRail(){
   railBody.innerHTML=
     '<div class="sect"><h2>Prediction settings</h2>'
-  +   sliderRow("fcH","Horizon",1,48,1,forecastOpts.horizon,"h")
+  +   '<label for="fcEngine">Forecast model</label><select id="fcEngine" style="width:100%;margin:8px 0 14px;padding:10px;background:#14232b;color:#e4f1f2;border:1px solid #33515b;border-radius:8px">'
+  +   '<option value="transformer"'+(forecastOpts.engine==="transformer"?' selected':'')+'>Transformer · next 20 minutes</option>'
+  +   '<option value="physics"'+(forecastOpts.engine==="physics"?' selected':'')+'>Physics · hourly forecast</option></select>'
+  +   (forecastOpts.engine==="transformer"
+      ? '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="fcDemo"'+(forecastOpts.demo?' checked':'')+'> Demo: generate dissolved oxygen</label><p class="hint">Uses 12 readings at 20-minute intervals. Demo oxygen is generated; older readings are labeled as a historical replay. Demo results are not saved as live sensor data.</p>'
+      : sliderRow("fcH","Horizon",1,48,1,forecastOpts.horizon,"h")
   +   '<button class="btn" id="fcOpt" aria-pressed="'+(forecastOpts.optimise?"true":"false")+'">'
   +     '<span class="dot"></span> Plan the aeration<small>cheapest safe</small></button>'
+      )
   +   '<div style="height:8px"></div>'
   +   '<button class="btn primary" id="fcRun" style="justify-content:center">Run prediction</button>'
   + '</div>'
   + '<div id="fcOut"></div>';
 
-  wireSlider("fcH",function(v){forecastOpts.horizon=v;},function(v){return v;});
-  document.getElementById("fcOpt").addEventListener("click",function(){
+  document.getElementById("fcEngine").addEventListener("change",function(){
+    forecastOpts.engine=this.value; app.forecast=null;app.playing=false;
+    document.getElementById("timeline").classList.add("hidden");
+    paintLive();renderForecastRail();
+  });
+  if(forecastOpts.engine==="transformer") document.getElementById("fcDemo").addEventListener("change",function(){
+    forecastOpts.demo=this.checked;app.forecast=null;app.playing=false;
+    document.getElementById("timeline").classList.add("hidden");
+    paintLive();renderForecastRail();
+  });
+  else {
+    wireSlider("fcH",function(v){forecastOpts.horizon=v;},function(v){return v;});
+    document.getElementById("fcOpt").addEventListener("click",function(){
     forecastOpts.optimise=!forecastOpts.optimise;
     this.setAttribute("aria-pressed",forecastOpts.optimise?"true":"false");
   });
+  }
   document.getElementById("fcRun").addEventListener("click",runForecast);
 
   if(app.forecast) paintForecastOut(app.forecast);
   else document.getElementById("fcOut").innerHTML=
-    '<p class="hint">Runs the physics engine forward from the pond\u2019s current measured state using the live weather forecast for its coordinates.</p>';
+    '<p class="hint">'+(forecastOpts.engine==="transformer"?'Runs your trained TransformerV1 and shows its next state in the 3D pond.':'Runs the physics engine from current measured water conditions and weather.')+'</p>';
 }
 
 function paintForecastOut(d){
   var out=document.getElementById("fcOut"); if(!out) return;
+  if(d.engine==="TransformerV1"){
+    var initial=d.initial, next=d.next_state;
+    function change(key,unit){return initial[key].toFixed(2)+' → '+next[key].toFixed(2)+(unit?' '+unit:'');}
+    out.innerHTML='<div class="verdict '+(d.demo?'warning':d.results[0].risk)+'"><b>'
+      +(d.demo?(d.historical_replay?'Historical demo prediction':'Demo prediction'):'Transformer prediction')
+      +'</b>Next state: '+escapeHtml(new Date(d.results[0].time).toLocaleString())
+      +'. '+(d.demo?'Dissolved oxygen inputs are generated for demonstration.':'Uses measured pond history.')+'</div>'
+      +'<div class="sect"><h2>Current input → next 20 minutes</h2>'
+      +stat('Water temperature',change('water_temperature','°C'))+stat('pH',change('ph',''))
+      +stat('Dissolved oxygen'+(d.demo?' (demo)':''),change('dissolved_oxygen','mg/L'))
+      +stat('Turbidity',change('turbidity','NTU'))
+      +stat('Model','TransformerV1')+stat('History','12 samples · 20-minute interval')
+      +stat('Last sensor time',escapeHtml(new Date(d.observed_at).toLocaleString()))+'</div>'
+      +'<p class="hint">The water state comes from the trained model. Depth layers are physics estimates. This model does not predict the effect of aerators or feeding.'
+      +(d.history_method==='demo_history_seeded_from_available_snapshots'?' The demo history uses available sensor snapshots where a full window is missing.':'')
+      +(d.historical_replay?' Historical sensor values are replayed; this is not a current pond forecast.':'')+'</p>';
+    return;
+  }
   var risk=d.first_risk_hour?(d.hours_at_risk>0?"critical":"warning"):"safe";
   var html='<div class="verdict '+risk+'">';
   if(d.first_risk_hour){
@@ -1144,17 +1180,21 @@ function paintForecastOut(d){
 }
 
 async function runForecast(){
+  var requestedId=app.pond.id;
   var btn=document.getElementById("fcRun");
   if(btn){btn.textContent="Running\u2026";btn.disabled=true;}
   try{
-    var d=await api("/ponds/"+app.pond.id+"/forecast",{
+    var d=await api("/ponds/"+requestedId+"/forecast",{
       method:"POST",
-      body:JSON.stringify({horizon_hours:forecastOpts.horizon,optimise:forecastOpts.optimise})
+      body:JSON.stringify({engine:forecastOpts.engine,demo_oxygen:forecastOpts.engine==="transformer"&&forecastOpts.demo,
+        horizon_hours:forecastOpts.horizon,optimise:forecastOpts.engine==="physics"&&forecastOpts.optimise})
     });
+    if(!app.pond||app.pond.id!==requestedId) return;
     app.forecast=d; app.hour=1;
-    setupTimeline(d,"Lowest oxygen in the column");
-    showHour(1);
-    paintForecastOut(d);
+    if(app.mode==="forecast"){
+      setupTimeline(d,d.engine==="TransformerV1"?'Next 20 minutes · '+(d.demo?'demo oxygen':'Transformer'):'Lowest oxygen in the column');
+      showHour(1); paintForecastOut(d);
+    }
   }catch(e){ toast("Prediction failed: "+e.message); }
   finally{ if(btn){btn.textContent="Run prediction";btn.disabled=false;} }
 }
@@ -1407,6 +1447,10 @@ function showHour(h,skipRangeSync){
     hour_of_day:hd, clock:fmtClock(r.time), phase:phaseOf(hd), risk:r.risk
   };
   renderFrame(lastFrame);
+  if(d.engine==="TransformerV1"){
+    document.getElementById("tag").textContent=d.demo?(d.historical_replay?'historical demo · generated oxygen':'demo · generated oxygen'):'Transformer · next 20 minutes';
+    if(d.demo) document.getElementById("fishnote").textContent='Demo with generated dissolved oxygen. Fish and oxygen layers are illustrative; these values are not live pond measurements.';
+  }
 }
 
 /** Show a readable school, scaled logarithmically from the real stock count. */
